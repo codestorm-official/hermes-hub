@@ -2,8 +2,8 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-import { renderDashboard } from './dashboard.js';
-import { answerFromNotes, isLlmConfigured, resolveLlmConfig } from './llm.js';
+import { renderDashboard } from './dashboard-app.js';
+import { answerFromNotes, isLlmConfigured, loadLlmModels, resolveLlmConfig } from './llm.js';
 import { createNoteStore } from './storage.js';
 
 const DEFAULT_PORT = 3000;
@@ -24,12 +24,13 @@ export function resolveConfig(env = process.env) {
 }
 
 export function createHermesServer(options = {}) {
-  const { noteStore, ...overrides } = options;
+  const { fetchImpl = fetch, noteStore, ...overrides } = options;
   const config = { ...resolveConfig(), ...overrides };
   const store = noteStore || createNoteStore({ dataDir: config.dataDir });
+  const dependencies = { fetchImpl };
 
   return createServer((request, response) => {
-    routeRequest(request, response, config, store).catch((error) => {
+    routeRequest(request, response, config, store, dependencies).catch((error) => {
       const statusCode = error.statusCode || 500;
       sendJson(response, statusCode, {
         error: error.code || 'internal_error',
@@ -39,7 +40,7 @@ export function createHermesServer(options = {}) {
   });
 }
 
-async function routeRequest(request, response, config, store) {
+async function routeRequest(request, response, config, store, dependencies) {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
     const method = request.method || 'GET';
 
@@ -61,6 +62,22 @@ async function routeRequest(request, response, config, store) {
       return sendJson(response, 200, await infoPayload(config, request, store), method);
     }
 
+    if (url.pathname === '/api/session') {
+      return handleSession(request, response, method, config);
+    }
+
+    if (url.pathname === '/api/settings') {
+      return handleSettings(request, response, method, config, store);
+    }
+
+    if (url.pathname === '/api/settings/llm') {
+      return handleLlmSettings(request, response, method, config, store);
+    }
+
+    if (url.pathname === '/api/settings/llm/models') {
+      return handleLlmModels(request, response, method, config, store, dependencies);
+    }
+
     if (url.pathname === '/api/notes') {
       return handleNotesCollection(request, response, method, url, config, store);
     }
@@ -70,7 +87,7 @@ async function routeRequest(request, response, config, store) {
     }
 
     if (url.pathname === '/api/ask') {
-      return handleAsk(request, response, method, config, store);
+      return handleAsk(request, response, method, config, store, dependencies);
     }
 
     if (url.pathname === '/favicon.ico') {
@@ -163,15 +180,16 @@ function healthPayload(config) {
 
 async function infoPayload(config, request, store) {
   const stats = await store.stats();
+  const llm = await getEffectiveLlmConfig(config, store);
 
   return {
     service: config.appName,
     environment: config.nodeEnv,
     url: config.appUrl,
     llm: {
-      configured: isLlmConfigured(config.llm),
-      provider: config.llm.provider || null,
-      model: config.llm.model || null
+      configured: isLlmConfigured(llm),
+      provider: llm.provider || null,
+      model: llm.model || null
     },
     notesAuthRequired: Boolean(config.authToken),
     stats,
@@ -234,7 +252,69 @@ async function handleNotesItem(request, response, method, url, config, store) {
   return response.end();
 }
 
-async function handleAsk(request, response, method, config, store) {
+async function handleSession(request, response, method, config) {
+  if (!allowsMethod(method, ['POST'])) {
+    return methodNotAllowed(response, ['POST'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  return sendJson(response, 200, {
+    ok: true,
+    authRequired: Boolean(config.authToken)
+  }, method);
+}
+
+async function handleSettings(request, response, method, config, store) {
+  if (!allowsMethod(method, ['GET', 'HEAD'])) {
+    return methodNotAllowed(response, ['GET', 'HEAD'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  return sendJson(response, 200, await settingsPayload(config, store), method);
+}
+
+async function handleLlmSettings(request, response, method, config, store) {
+  if (!allowsMethod(method, ['PUT'])) {
+    return methodNotAllowed(response, ['PUT'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const payload = await readRequestJson(request);
+
+  await store.updateLlmSettings(payload);
+
+  return sendJson(response, 200, await settingsPayload(config, store), method);
+}
+
+async function handleLlmModels(request, response, method, config, store, dependencies) {
+  if (!allowsMethod(method, ['POST'])) {
+    return methodNotAllowed(response, ['POST'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const payload = await readRequestJson(request);
+  const llm = await getEffectiveLlmConfig(config, store, payload);
+  const models = await loadLlmModels({
+    config: llm,
+    fetchImpl: dependencies.fetchImpl
+  });
+
+  return sendJson(response, 200, { models }, method);
+}
+
+async function handleAsk(request, response, method, config, store, dependencies) {
   if (!allowsMethod(method, ['POST'])) {
     return methodNotAllowed(response, ['POST'], method);
   }
@@ -245,13 +325,75 @@ async function handleAsk(request, response, method, config, store) {
 
   const payload = await readRequestJson(request);
   const notes = await store.listNotes();
+  const llm = await getEffectiveLlmConfig(config, store);
   const answer = await answerFromNotes({
     question: payload.question,
     notes,
-    config: config.llm
+    config: llm,
+    fetchImpl: dependencies.fetchImpl
   });
 
   return sendJson(response, 200, answer, method);
+}
+
+async function settingsPayload(config, store) {
+  const settings = await store.readSettings();
+  const llm = await getEffectiveLlmConfig(config, store);
+  const savedLlm = getSavedLlmSettings(settings);
+
+  return {
+    llm: {
+      provider: llm.provider || '',
+      baseUrl: llm.baseUrl || '',
+      model: llm.model || '',
+      maxContextNotes: llm.maxContextNotes,
+      configured: isLlmConfigured(llm),
+      hasApiKey: Boolean(llm.apiKey),
+      saved: Boolean(settings.llm),
+      savedHasApiKey: Boolean(savedLlm.apiKey)
+    }
+  };
+}
+
+async function getEffectiveLlmConfig(config, store, overrides = {}) {
+  const settings = await store.readSettings();
+  const savedLlm = getSavedLlmSettings(settings);
+  const llm = {
+    ...savedLlm,
+    ...normaliseLlmOverrides(overrides)
+  };
+
+  return resolveLlmConfig({
+    LLM_PROVIDER: readLlmField(llm, 'provider', config.llm.provider),
+    LLM_API_KEY: readLlmField(llm, 'apiKey', config.llm.apiKey),
+    LLM_BASE_URL: readLlmField(llm, 'baseUrl', config.llm.baseUrl),
+    LLM_MODEL: readLlmField(llm, 'model', config.llm.model),
+    LLM_MAX_CONTEXT_NOTES: String(readLlmField(llm, 'maxContextNotes', config.llm.maxContextNotes))
+  });
+}
+
+function getSavedLlmSettings(settings) {
+  return settings.llm && typeof settings.llm === 'object' ? settings.llm : {};
+}
+
+function normaliseLlmOverrides(input = {}) {
+  const overrides = {};
+
+  for (const key of ['provider', 'apiKey', 'baseUrl', 'model', 'maxContextNotes']) {
+    if (Object.prototype.hasOwnProperty.call(input, key) && input[key] !== '') {
+      overrides[key] = input[key];
+    }
+  }
+
+  return overrides;
+}
+
+function readLlmField(settings, key, fallback) {
+  if (Object.prototype.hasOwnProperty.call(settings, key)) {
+    return settings[key];
+  }
+
+  return fallback;
 }
 
 function isAuthorized(config, request) {

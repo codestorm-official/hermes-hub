@@ -38,7 +38,7 @@ export async function answerFromNotes({ question, notes, config, fetchImpl = fet
   const selectedNotes = rankNotesForQuestion(notes, cleanQuestion).slice(0, config.maxContextNotes);
   const context = buildContext(selectedNotes);
   const messages = buildMessages(cleanQuestion, context);
-  const answer = await callLlm(config, messages, fetchImpl);
+  const answer = normaliseAnswerText(await callLlm(config, messages, fetchImpl));
 
   return {
     answer,
@@ -49,6 +49,21 @@ export async function answerFromNotes({ question, notes, config, fetchImpl = fet
       updatedAt: note.updatedAt
     }))
   };
+}
+
+export async function loadLlmModels({ config, fetchImpl = fetch }) {
+  if (config.provider === 'openai-compatible') {
+    return loadOpenAiCompatibleModels(config, fetchImpl);
+  }
+
+  if (config.provider === 'ollama') {
+    return loadOllamaModels(config, fetchImpl);
+  }
+
+  const error = new Error('Model loading is not supported for this provider yet.');
+  error.statusCode = 400;
+  error.code = 'models_not_supported';
+  throw error;
 }
 
 export function rankNotesForQuestion(notes, question) {
@@ -104,6 +119,16 @@ function parsePositiveInt(value, fallback) {
 
 function normaliseString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normaliseAnswerText(value) {
+  return normaliseString(value)
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\s*\((?:catatan|note)\s+\d+\)/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 function tokenise(value) {
@@ -170,8 +195,12 @@ function buildMessages(question, context) {
       content: [
         'You are Hermes Hub, a private second-brain assistant.',
         'Answer using only the provided notes context.',
+        'Write in the same language as the user when possible.',
+        'Answer directly instead of opening with phrases like "According to the note" or "Menurut catatan", unless the user asks for sources.',
+        'Use natural plain prose without Markdown formatting.',
+        'Do not include inline source labels such as "(Note 1)" or "(Catatan 1)" because sources are shown separately.',
+        'Mention note titles only when they are necessary to answer the question.',
         'If the notes do not contain enough information, say so clearly.',
-        'Mention the note titles you used as sources.',
         'Keep the answer concise and practical.'
       ].join(' ')
     },
@@ -265,12 +294,69 @@ async function callOllama(config, messages, fetchImpl) {
   return normaliseString(body.message?.content || body.response);
 }
 
+async function loadOpenAiCompatibleModels(config, fetchImpl) {
+  if (!config.baseUrl || !config.apiKey) {
+    const error = new Error('Base URL and API key are required to load models.');
+    error.statusCode = 400;
+    error.code = 'llm_models_missing_config';
+    throw error;
+  }
+
+  const response = await fetchImpl(`${config.baseUrl}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      Accept: 'application/json'
+    }
+  });
+  const body = await parseJsonResponse(response);
+
+  return normaliseModelIds(Array.isArray(body.data) ? body.data.map((item) => item.id) : []);
+}
+
+async function loadOllamaModels(config, fetchImpl) {
+  if (!config.baseUrl) {
+    const error = new Error('Base URL is required to load models.');
+    error.statusCode = 400;
+    error.code = 'llm_models_missing_config';
+    throw error;
+  }
+
+  const headers = {
+    Accept: 'application/json'
+  };
+
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
+  }
+
+  const response = await fetchImpl(getOllamaTagsUrl(config.baseUrl), {
+    method: 'GET',
+    headers
+  });
+  const body = await parseJsonResponse(response);
+
+  return normaliseModelIds(Array.isArray(body.models) ? body.models.map((item) => item.name || item.model) : []);
+}
+
 function getOllamaChatUrl(baseUrl) {
   if (baseUrl.endsWith('/api')) {
     return `${baseUrl}/chat`;
   }
 
   return `${baseUrl}/api/chat`;
+}
+
+function getOllamaTagsUrl(baseUrl) {
+  if (baseUrl.endsWith('/api')) {
+    return `${baseUrl}/tags`;
+  }
+
+  return `${baseUrl}/api/tags`;
+}
+
+function normaliseModelIds(values) {
+  return [...new Set(values.map(normaliseString).filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 async function parseJsonResponse(response) {

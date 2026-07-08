@@ -13,24 +13,32 @@ Project ini sengaja dibuat sederhana:
 
 ## Fitur
 
-- **Dashboard** di `/` untuk capture, search, dan delete notes.
+- **Dashboard admin** di `/` dengan login, sidebar, capture, search, delete, Ask Notes, dan Settings.
 - **Ask Notes / basic RAG** untuk bertanya ke notes memakai LLM yang dikonfigurasi.
+- **LLM Settings dari UI** untuk memilih provider, base URL, API key, model, dan max context notes.
+- **Load Models** untuk provider yang punya endpoint model list seperti OpenAI-compatible dan Ollama.
 - **Notes API** untuk integrasi programmatic.
 - **Health endpoints** untuk deployment checks.
 - **Token guard** dengan `HERMES_TOKEN` untuk notes dashboard dan API.
 - **Persistent storage** di `/app/data/notes.json`.
+- **Persistent settings** di `/app/data/settings.json`.
 - **Docker Compose deployment** untuk lokal, VPS, dan Dokploy.
 - **Dokploy-safe compose** tanpa host port binding langsung di `compose.yaml`.
 
 Versi saat ini adalah MVP. Fitur notes adalah fondasi pertama, bukan tujuan akhir. Hermes Hub ditujukan sebagai control plane pribadi untuk capture, memory, audit log, approval workflow, Telegram capture, local agent, dan integrasi AI/browser yang lebih aman.
 
-Hermes Hub mendukung LLM opsional untuk fitur Ask Notes. Jika LLM belum dikonfigurasi, dashboard dan notes tetap berjalan, tetapi fitur Ask akan menampilkan status bahwa LLM belum siap.
+Hermes Hub mendukung LLM opsional untuk fitur Ask Notes. Jika LLM belum dikonfigurasi, dashboard dan notes tetap berjalan, tetapi fitur Ask akan menampilkan status bahwa LLM belum siap. LLM bisa dikonfigurasi dari menu `Settings` di dashboard, atau lewat environment variables sebagai default awal.
 
 Hermes Hub saat ini belum menjadi full AI agent, Telegram bot, Obsidian sync engine, atau browser controller. Fondasi deployment, data, dan basic RAG sudah siap untuk dikembangkan ke arah itu.
 
 ## Status AI / LLM
 
-LLM bersifat opsional dan dikonfigurasi lewat environment variables. Tidak ada API key yang dimasukkan dari UI.
+LLM bersifat opsional. Ada dua cara konfigurasi:
+
+- lewat menu `Settings` di dashboard;
+- lewat environment variables sebagai default/bootstrap config.
+
+Jika konfigurasi disimpan dari UI, nilainya disimpan di `/app/data/settings.json` dan akan dipakai oleh Hermes setelah redeploy selama volume `hermes-data` tetap ada. API key tidak pernah dikirim balik ke browser; dashboard hanya menampilkan status apakah API key sudah tersimpan atau belum.
 
 Yang sudah ada:
 
@@ -163,14 +171,17 @@ Token dashboard hanya disimpan di memory tab browser. Jika halaman di-refresh, t
 Flow penggunaan harian:
 
 1. Buka dashboard Hermes.
-2. Isi token jika diminta.
-3. Tulis note di panel `Capture`.
-4. Tambahkan tag seperti `idea`, `project`, atau `dokploy`.
-5. Klik `Save Note`.
-6. Cari note dari panel `Notes`.
-7. Jika LLM sudah dikonfigurasi, tanya dari panel `Ask Notes`.
+2. Login memakai token yang sama dengan `HERMES_TOKEN`.
+3. Buka menu `Settings` untuk mengatur LLM provider, base URL, API key, dan model.
+4. Model bisa diketik manual, atau klik `Load Models` lalu pilih dari dropdown jika provider mendukung model list.
+5. Buka menu `Capture` untuk menyimpan note.
+6. Buka menu `Notes` untuk mencari dan menghapus note.
+7. Buka menu `Ask` untuk bertanya ke notes jika LLM sudah siap.
+8. Klik `Logout` untuk menghapus token dari sesi browser.
 
 Data notes disimpan di `/app/data/notes.json` di dalam container dan dipersist lewat Docker volume `hermes-data`.
+
+Data settings dashboard disimpan di `/app/data/settings.json` di dalam container dan dipersist lewat volume yang sama.
 
 Cara kerja `Ask Notes`:
 
@@ -227,6 +238,10 @@ curl -X POST https://hermes.example.com/api/ask \
 - `/health` - health check JSON
 - `/ready` - alias health check
 - `/api/info` - metadata runtime
+- `/api/session` - validasi login token dashboard
+- `/api/settings` - baca settings yang aman untuk UI
+- `/api/settings/llm` - simpan settings LLM
+- `/api/settings/llm/models` - load model list dari provider
 - `/api/notes` - list dan create notes
 - `/api/notes/:id` - delete note
 - `/api/ask` - basic RAG over notes using configured LLM
@@ -234,6 +249,8 @@ curl -X POST https://hermes.example.com/api/ask \
 ## Environment
 
 Gunakan `.env.example` sebagai template. Untuk Docker lokal atau VPS manual, buat file `.env`. Untuk Dokploy, isi variable ini lewat menu Environment app Dokploy.
+
+Mulai versi ini, variable `LLM_*` bersifat opsional sebagai default awal. Anda bisa membiarkannya kosong lalu mengatur provider dari dashboard `Settings`. Jika settings disimpan dari UI, settings tersebut akan override default dari environment.
 
 | Name | Default | Keterangan |
 | --- | --- | --- |
@@ -481,6 +498,7 @@ Untuk deployment publik:
 - Set `HERMES_TOKEN` dengan token panjang dan acak.
 - Gunakan HTTPS.
 - Jangan commit `.env`.
+- Jangan commit atau export isi volume data jika berisi API key di `settings.json`.
 - Backup volume `hermes-data`.
 - Jangan simpan secrets penting di notes sebelum ada encryption dan access control yang lebih kuat.
 - Gunakan approval workflow sebelum menambahkan integrasi yang bisa melakukan action eksternal.
@@ -545,8 +563,8 @@ Urutan pengembangan yang disarankan:
 1. **Audit log** - catat create/delete note, token usage, error, dan action penting.
 2. **SQLite storage** - pindahkan storage dari JSON ke SQLite untuk query dan durability yang lebih baik.
 3. **Full-text search** - tambah pencarian yang lebih kuat untuk content dan tags.
-4. **LLM config** - tambah provider config seperti `LLM_API_KEY`, `LLM_MODEL`, dan `LLM_BASE_URL`.
-5. **Ask notes / RAG** - jawaban berbasis notes pribadi dengan proteksi note sensitif.
+4. **Provider validation** - test connection, better provider presets, dan pesan error yang lebih ramah.
+5. **Ask notes / RAG yang lebih kuat** - embeddings/vector search dan proteksi note sensitif.
 6. **Telegram capture** - simpan note/link dari Telegram dengan allowlist user.
 7. **Approval center** - action pending, approve/reject, dan audit trail.
 8. **Local agent** - koneksi privat ke komputer lokal untuk vault/browser sensitif.
@@ -559,7 +577,8 @@ Urutan pengembangan yang disarankan:
 - [compose.local.yaml](compose.local.yaml) menambahkan host port mapping untuk development lokal.
 - [.env.example](.env.example) adalah template variable untuk lokal dan Dokploy.
 - `src/storage.js` mengelola file notes persisten.
-- `src/dashboard.js` merender dashboard Hermes Hub.
+- `src/dashboard-app.js` merender dashboard admin Hermes Hub.
+- `src/dashboard.js` adalah renderer dashboard lama yang masih disimpan sebagai legacy.
 
 ## Troubleshooting
 
@@ -570,3 +589,4 @@ Urutan pengembangan yang disarankan:
 - Jika notes hilang setelah redeploy, pastikan volume `hermes-data` aktif di Dokploy.
 - Jika port lokal bentrok, ubah `HOST_PORT` di `.env`, misalnya `HOST_PORT=3001`.
 - Jika health check gagal, cek log dengan `docker compose logs -f hermes`.
+- Jika `Load Models` gagal untuk Anthropic-compatible provider, ketik nama model manual. Endpoint model list belum standar untuk semua provider Anthropic-compatible.

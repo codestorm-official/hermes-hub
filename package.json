@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node tests/server.test.js",
-    "check": "node --check src/server.js && node --check src/dashboard.js && node --check src/storage.js && node --check src/llm.js && node --check tests/server.test.js"
+    "check": "node --check src/server.js && node --check src/dashboard.js && node --check src/dashboard-app.js && node --check src/storage.js && node --check src/llm.js && node --check tests/server.test.js"
   },
   "engines": {
     "node": ">=20.11"

@@ -3,10 +3,12 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const NOTES_FILE = 'notes.json';
+const SETTINGS_FILE = 'settings.json';
 
 export function createNoteStore(options = {}) {
   const dataDir = options.dataDir || path.resolve('data');
   const notesFile = path.join(dataDir, NOTES_FILE);
+  const settingsFile = path.join(dataDir, SETTINGS_FILE);
   const now = options.now || (() => new Date());
   const idFactory = options.idFactory || randomUUID;
   let writeChain = Promise.resolve();
@@ -40,13 +42,38 @@ export function createNoteStore(options = {}) {
   }
 
   async function writeNotes(notes) {
+    await writeJsonFile(notesFile, notes);
+  }
+
+  async function readSettingsFile() {
     await mkdir(dataDir, { recursive: true });
 
-    const body = `${JSON.stringify(notes, null, 2)}\n`;
-    const tempFile = `${notesFile}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      const raw = await readFile(settingsFile, 'utf8');
+      const parsed = raw.trim() ? JSON.parse(raw) : {};
+
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return {};
+      }
+
+      throw error;
+    }
+  }
+
+  async function writeSettingsFile(settings) {
+    await writeJsonFile(settingsFile, settings);
+  }
+
+  async function writeJsonFile(file, payload) {
+    await mkdir(dataDir, { recursive: true });
+
+    const body = `${JSON.stringify(payload, null, 2)}\n`;
+    const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
 
     await writeFile(tempFile, body, 'utf8');
-    await rename(tempFile, notesFile);
+    await rename(tempFile, file);
   }
 
   function withWriteLock(task) {
@@ -58,6 +85,7 @@ export function createNoteStore(options = {}) {
   return {
     dataDir,
     notesFile,
+    settingsFile,
 
     async listNotes(filters = {}) {
       const notes = await readNotes();
@@ -121,6 +149,26 @@ export function createNoteStore(options = {}) {
         noteCount: notes.length,
         latestNoteAt: sorted[0]?.updatedAt || null
       };
+    },
+
+    async readSettings() {
+      return readSettingsFile();
+    },
+
+    async updateLlmSettings(input = {}) {
+      return withWriteLock(async () => {
+        const settings = await readSettingsFile();
+        const currentLlm = settings.llm && typeof settings.llm === 'object' ? settings.llm : {};
+        const llm = normaliseLlmSettings(input, currentLlm);
+        const nextSettings = {
+          ...settings,
+          llm,
+          updatedAt: now().toISOString()
+        };
+
+        await writeSettingsFile(nextSettings);
+        return nextSettings;
+      });
     }
   };
 }
@@ -139,6 +187,35 @@ function normaliseTags(value) {
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 20);
+}
+
+function normaliseLlmSettings(input, current = {}) {
+  const next = {
+    provider: normaliseString(input.provider),
+    baseUrl: normaliseString(input.baseUrl).replace(/\/+$/, ''),
+    model: normaliseString(input.model),
+    maxContextNotes: parsePositiveInt(input.maxContextNotes, parsePositiveInt(current.maxContextNotes, 6))
+  };
+
+  if (input.clearApiKey) {
+    next.apiKey = '';
+  } else if (normaliseString(input.apiKey)) {
+    next.apiKey = normaliseString(input.apiKey);
+  } else if (Object.prototype.hasOwnProperty.call(current, 'apiKey')) {
+    next.apiKey = normaliseString(current.apiKey);
+  }
+
+  return next;
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+
+  if (Number.isNaN(parsed) || parsed < 1) {
+    return fallback;
+  }
+
+  return parsed;
 }
 
 function deriveTitle(content) {

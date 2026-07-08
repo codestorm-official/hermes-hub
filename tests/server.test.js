@@ -68,6 +68,39 @@ test('notes api requires token when configured', async (t) => {
   });
 });
 
+test('session and settings api require token when configured', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const { baseUrl, close } = await startServer({ authToken: 'secret', dataDir });
+  t.after(close);
+
+  const unauthorizedSession = await fetch(`${baseUrl}/api/session`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+  const unauthorizedSettings = await fetch(`${baseUrl}/api/settings`);
+  const authorizedSession = await fetch(`${baseUrl}/api/session`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer secret'
+    },
+    body: JSON.stringify({})
+  });
+  const authorizedSettings = await fetch(`${baseUrl}/api/settings`, {
+    headers: {
+      Authorization: 'Bearer secret'
+    }
+  });
+  const settingsBody = await authorizedSettings.json();
+
+  assert.equal(unauthorizedSession.status, 401);
+  assert.equal(unauthorizedSettings.status, 401);
+  assert.equal(authorizedSession.status, 200);
+  assert.deepEqual(await authorizedSession.json(), { ok: true, authRequired: true });
+  assert.equal(authorizedSettings.status, 200);
+  assert.equal(settingsBody.llm.configured, false);
+  assert.equal(settingsBody.llm.hasApiKey, false);
+});
+
 test('notes api creates, searches, and deletes notes', async (t) => {
   const dataDir = await createTempDataDir(t);
   const { baseUrl, close } = await startServer({ dataDir });
@@ -119,6 +152,115 @@ test('ask endpoint reports missing llm configuration', async (t) => {
 
   assert.equal(response.status, 503);
   assert.equal(body.error, 'llm_not_configured');
+});
+
+test('llm settings api saves provider config and ask uses it', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const calls = [];
+  const { baseUrl, close } = await startServer({
+    dataDir,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: 'Dokploy routes to internal port 3000.'
+            }
+          }
+        ]
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+  t.after(close);
+
+  await fetch(`${baseUrl}/api/notes`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Dokploy route',
+      content: 'Route the Dokploy domain to internal port 3000.',
+      tags: 'deploy',
+      source: 'manual'
+    })
+  });
+
+  const settings = await fetch(`${baseUrl}/api/settings/llm`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      provider: 'openai-compatible',
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example.com/v1',
+      model: 'test-model',
+      maxContextNotes: 4
+    })
+  });
+  const settingsBody = await settings.json();
+
+  assert.equal(settings.status, 200);
+  assert.equal(settingsBody.llm.configured, true);
+  assert.equal(settingsBody.llm.hasApiKey, true);
+  assert.equal(Object.hasOwn(settingsBody.llm, 'apiKey'), false);
+
+  const asked = await fetch(`${baseUrl}/api/ask`, {
+    method: 'POST',
+    body: JSON.stringify({
+      question: 'How is Dokploy routed?'
+    })
+  });
+  const askedBody = await asked.json();
+
+  assert.equal(asked.status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://llm.example.com/v1/chat/completions');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer test-key');
+  assert.equal(askedBody.answer, 'Dokploy routes to internal port 3000.');
+});
+
+test('llm model loader returns openai-compatible model ids', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const calls = [];
+  const { baseUrl, close } = await startServer({
+    dataDir,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'zeta-model' },
+          { id: 'alpha-model' },
+          { id: 'alpha-model' }
+        ]
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+  t.after(close);
+
+  const response = await fetch(`${baseUrl}/api/settings/llm/models`, {
+    method: 'POST',
+    body: JSON.stringify({
+      provider: 'openai-compatible',
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example.com/v1'
+    })
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://llm.example.com/v1/models');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer test-key');
+  assert.deepEqual(body.models, ['alpha-model', 'zeta-model']);
 });
 
 test('answerFromNotes sends matching notes to an openai-compatible llm', async () => {
@@ -182,6 +324,48 @@ test('answerFromNotes sends matching notes to an openai-compatible llm', async (
       updatedAt: '2026-01-01T00:00:00.000Z'
     }
   ]);
+});
+
+test('answerFromNotes returns natural text without inline source formatting', async () => {
+  const config = resolveLlmConfig({
+    LLM_PROVIDER: 'openai-compatible',
+    LLM_API_KEY: 'test-key',
+    LLM_BASE_URL: 'https://llm.example.com/v1',
+    LLM_MODEL: 'test-model'
+  });
+  const answer = await answerFromNotes({
+    question: 'Kapan deploy Pefindo?',
+    config,
+    notes: [
+      {
+        id: 'note-1',
+        title: 'Jadwal Deploy Juli',
+        content: 'Pefindo masuk daftar deployment bulan Juli 2026.',
+        tags: ['deploy'],
+        source: 'manual',
+        updatedAt: '2026-07-01T00:00:00.000Z'
+      }
+    ],
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: 'Menurut catatan **"Jadwal Deploy Juli"**, proyek **Pefindo** termasuk dalam daftar kegiatan deployment untuk bulan Juli. Jadi, deployment Pefindo dijadwalkan terjadi pada Juli\u202f2026. (Catatan 1)'
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+  });
+
+  assert.equal(
+    answer.answer,
+    'Menurut catatan "Jadwal Deploy Juli", proyek Pefindo termasuk dalam daftar kegiatan deployment untuk bulan Juli. Jadi, deployment Pefindo dijadwalkan terjadi pada Juli 2026.'
+  );
 });
 
 test('answerFromNotes supports ollama cloud base url', async () => {
