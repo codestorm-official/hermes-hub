@@ -119,7 +119,7 @@ Gunakan `.env.example` sebagai template. Untuk deploy di Dokploy, isi variable i
 | --- | --- | --- |
 | `APP_NAME` | `Hermes` | Nama service yang tampil di halaman dan health payload. |
 | `APP_URL` | `http://localhost:3000` | URL publik aplikasi, contoh `https://hermes.domainmu.com`. |
-| `HOST_PORT` | `3000` | Port host untuk Docker Compose lokal. Di Dokploy biasanya boleh tetap `3000`. |
+| `HOST_PORT` | `3000` | Port host untuk Docker Compose lokal lewat `compose.local.yaml`. Tidak perlu diset untuk Dokploy. |
 | `LOG_LEVEL` | `info` | Disiapkan untuk konfigurasi logging berikutnya. |
 | `TRUST_PROXY` | `true` | Aktifkan pembacaan `X-Forwarded-For`, cocok saat di belakang proxy Dokploy. |
 
@@ -146,6 +146,12 @@ TRUST_PROXY=true
 9. Set health check path ke `/health` jika Dokploy meminta health check.
 10. Jalankan deploy.
 
+Catatan penting: `compose.yaml` tidak mem-publish host port seperti `3000:3000`. Di Dokploy, routing dilakukan lewat proxy internal ke service `hermes` port `3000`. Ini menghindari error seperti:
+
+```text
+Bind for 0.0.0.0:3000 failed: port is already allocated
+```
+
 Setelah deploy selesai, cek:
 
 ```sh
@@ -169,7 +175,7 @@ Payload asli juga menyertakan `uptime` dan `timestamp`.
 Jalankan dari root project:
 
 ```sh
-docker compose up --build
+docker compose -f compose.yaml -f compose.local.yaml up --build
 ```
 
 Buka:
@@ -181,19 +187,19 @@ http://localhost:3000
 Untuk menjalankan di background:
 
 ```sh
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
 ```
 
 Untuk melihat log:
 
 ```sh
-docker compose logs -f hermes
+docker compose -f compose.yaml -f compose.local.yaml logs -f hermes
 ```
 
 Untuk mematikan service:
 
 ```sh
-docker compose down
+docker compose -f compose.yaml -f compose.local.yaml down
 ```
 
 ## Development Lokal
@@ -215,11 +221,13 @@ App akan listen di `http://localhost:3000`.
 ## Struktur Deploy
 
 - [Dockerfile](Dockerfile) membuat image Node.js production.
-- [compose.yaml](compose.yaml) mendefinisikan service `hermes`, port `3000`, restart policy, dan environment.
+- [compose.yaml](compose.yaml) mendefinisikan service `hermes`, internal port `3000`, restart policy, dan environment untuk Dokploy.
+- [compose.local.yaml](compose.local.yaml) menambahkan host port mapping untuk development lokal.
 - [.env.example](.env.example) adalah template variable untuk lokal dan Dokploy.
 
 ## Troubleshooting
 
+- Jika deploy Dokploy gagal dengan `Bind for 0.0.0.0:3000 failed`, pastikan Dokploy memakai `compose.yaml` saja, bukan `compose.local.yaml`.
 - Jika domain Dokploy menampilkan 502, pastikan route domain mengarah ke service `hermes` port `3000`.
 - Jika `/api/info` menampilkan IP proxy, pastikan `TRUST_PROXY=true`.
 - Jika port lokal bentrok, ubah `HOST_PORT` di `.env`, misalnya `HOST_PORT=3001`.

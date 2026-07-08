@@ -3,8 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: hermes:local
-    container_name: hermes
     restart: unless-stopped
     environment:
       APP_NAME: ${APP_NAME:-Hermes}
@@ -13,5 +11,5 @@ services:
       NODE_ENV: production
       PORT: 3000
       TRUST_PROXY: ${TRUST_PROXY:-true}
-    ports:
-      - "${HOST_PORT:-3000}:3000"
+    expose:
+      - "3000"
