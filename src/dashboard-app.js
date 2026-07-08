@@ -108,7 +108,7 @@ export function renderDashboard(config) {
     }
 
     button:disabled {
-      cursor: wait;
+      cursor: not-allowed;
       opacity: 0.66;
     }
 
@@ -427,6 +427,10 @@ export function renderDashboard(config) {
       flex: 1 1 260px;
     }
 
+    .toolbar {
+      margin-bottom: 16px;
+    }
+
     .message {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -484,12 +488,12 @@ export function renderDashboard(config) {
 
     .notes {
       display: grid;
-      gap: 12px;
+      gap: 18px;
     }
 
     .note {
       box-shadow: none;
-      padding: 15px;
+      padding: 18px;
     }
 
     .note-head {
@@ -661,6 +665,12 @@ export function renderDashboard(config) {
       line-height: 1.58;
       padding: 12px;
       white-space: pre-wrap;
+    }
+
+    @media (max-width: 1200px) {
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 920px) {
@@ -946,11 +956,33 @@ export function renderDashboard(config) {
                 <input id="llm-model" name="model" list="model-list" placeholder="Type a model name">
                 <datalist id="model-list"></datalist>
               </label>
-              <button id="load-models" type="button" class="secondary">Load Models</button>
+              <button id="load-models" type="button" class="secondary">Check / Load Models</button>
             </div>
             <select id="model-select" hidden aria-label="Loaded models"></select>
             <div class="action-row">
               <button id="save-settings" type="submit">Save Settings</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Channel Settings</h2>
+              <p>Connect delivery channels for future capture and notification workflows.</p>
+            </div>
+          </div>
+          <div id="telegram-notice" class="message" hidden></div>
+          <form id="telegram-form" autocomplete="off">
+            <label>Telegram bot token
+              <span class="secret-field">
+                <input id="telegram-bot-token" name="botToken" type="password" placeholder="123456789:AA...">
+                <button id="toggle-telegram-token" class="icon-button" type="button" aria-label="Show Telegram token" title="Show Telegram token">&#128065;&#65039;</button>
+              </span>
+            </label>
+            <div class="key-status" id="telegram-status">No Telegram bot connected.</div>
+            <div class="action-row">
+              <button id="test-telegram" type="button" class="secondary">Test Connection</button>
+              <button id="save-telegram" type="submit">Save Bot</button>
             </div>
           </form>
         </div>
@@ -1009,9 +1041,13 @@ export function renderDashboard(config) {
     };
     const state = {
       authRequired: false,
+      llmCheckSignature: '',
       llmConfigured: false,
+      llmConnectionSignature: '',
+      llmLoadedModels: [],
       notes: [],
       settings: null,
+      telegramCheckSignature: '',
       token: readSessionToken(),
       view: 'ask'
     };
@@ -1059,8 +1095,15 @@ export function renderDashboard(config) {
       settingsForm: document.querySelector('#settings-form'),
       settingsNotice: document.querySelector('#settings-notice'),
       sources: document.querySelector('#sources'),
+      saveTelegram: document.querySelector('#save-telegram'),
+      telegramBotToken: document.querySelector('#telegram-bot-token'),
+      telegramForm: document.querySelector('#telegram-form'),
+      telegramNotice: document.querySelector('#telegram-notice'),
+      telegramStatus: document.querySelector('#telegram-status'),
+      testTelegram: document.querySelector('#test-telegram'),
       toastStack: document.querySelector('#toast-stack'),
       toggleApiKey: document.querySelector('#toggle-api-key'),
+      toggleTelegramToken: document.querySelector('#toggle-telegram-token'),
       viewSubtitle: document.querySelector('#view-subtitle'),
       viewTitle: document.querySelector('#view-title')
     };
@@ -1073,8 +1116,20 @@ export function renderDashboard(config) {
     els.search.addEventListener('input', debounce(() => loadNotes(), 240));
     els.settingsForm.addEventListener('submit', saveSettings);
     els.loadModels.addEventListener('click', loadModels);
-    els.llmProvider.addEventListener('change', updateProviderHints);
+    els.llmProvider.addEventListener('change', () => {
+      updateProviderHints();
+      markLlmSettingsDirty();
+    });
+    [els.llmApiKey, els.llmBaseUrl, els.llmClearKey, els.llmMaxContext, els.llmModel].forEach((input) => {
+      input.addEventListener('input', markLlmSettingsDirty);
+      input.addEventListener('change', markLlmSettingsDirty);
+    });
     els.toggleApiKey.addEventListener('click', toggleApiKeyVisibility);
+    els.telegramForm.addEventListener('submit', saveTelegramSettings);
+    els.telegramBotToken.addEventListener('input', markTelegramSettingsDirty);
+    els.telegramBotToken.addEventListener('change', markTelegramSettingsDirty);
+    els.testTelegram.addEventListener('click', testTelegramConnection);
+    els.toggleTelegramToken.addEventListener('click', toggleTelegramTokenVisibility);
     els.closeNoteModal.addEventListener('click', closeNoteModal);
     els.noteModal.addEventListener('click', (event) => {
       if (event.target === els.noteModal) {
@@ -1089,6 +1144,7 @@ export function renderDashboard(config) {
     els.modelSelect.addEventListener('change', () => {
       if (els.modelSelect.value) {
         els.llmModel.value = els.modelSelect.value;
+        markLoadedModelSelected();
       }
     });
     els.navButtons.forEach((button) => {
@@ -1127,6 +1183,7 @@ export function renderDashboard(config) {
         showApp();
         await refreshApp(info);
       } catch (error) {
+        showLogin();
         showLoginError(error.message);
       }
     }
@@ -1196,11 +1253,20 @@ export function renderDashboard(config) {
       const response = await api('/api/settings');
       state.settings = response;
       fillSettingsForm(response.llm || {});
+      fillTelegramForm((response.channels && response.channels.telegram) || {});
       renderLlmStatus(response.llm || {});
     }
 
     async function saveSettings(event) {
       event.preventDefault();
+
+      if (els.llmProvider.value && state.llmCheckSignature !== getLlmSignature()) {
+        showSettingsNotice('Check the LLM connection and selected model before saving.', true);
+        showToast('Check the LLM connection before saving.', true);
+        updateLlmSaveState();
+        return;
+      }
+
       els.saveSettings.disabled = true;
 
       try {
@@ -1228,16 +1294,18 @@ export function renderDashboard(config) {
         showSettingsNotice(error.message, true);
         showToast(error.message, true);
       } finally {
-        els.saveSettings.disabled = false;
+        updateLlmSaveState();
       }
     }
 
     async function loadModels() {
       els.loadModels.disabled = true;
-      showSettingsNotice('Loading models...', false);
+      state.llmCheckSignature = '';
+      updateLlmSaveState();
+      showSettingsNotice('Checking LLM connection...', false);
 
       try {
-        const response = await api('/api/settings/llm/models', {
+        const response = await api('/api/settings/llm/check', {
           method: 'POST',
           body: JSON.stringify({
             provider: els.llmProvider.value,
@@ -1248,24 +1316,100 @@ export function renderDashboard(config) {
           })
         });
         const models = response.models || [];
+        state.llmConnectionSignature = getLlmConnectionSignature();
+        state.llmLoadedModels = models;
 
-        if (!models.length) {
-          showSettingsNotice('No models returned by provider.', true);
-          showToast('Provider did not return any models.', true);
+        if (models.length) {
+          els.modelList.innerHTML = models.map((model) => '<option value="' + escapeHtml(model) + '"></option>').join('');
+          els.modelSelect.innerHTML = '<option value="">Select a loaded model</option>' +
+            models.map((model) => '<option value="' + escapeHtml(model) + '">' + escapeHtml(model) + '</option>').join('');
+          els.modelSelect.hidden = false;
+          markLoadedModelSelected();
+          showSettingsNotice(
+            state.llmCheckSignature === getLlmSignature()
+              ? models.length + ' models loaded. Selected model checked.'
+              : models.length + ' models loaded. Select one before saving.',
+            false
+          );
+          showToast(models.length + ' models loaded.');
           return;
         }
 
-        els.modelList.innerHTML = models.map((model) => '<option value="' + escapeHtml(model) + '"></option>').join('');
-        els.modelSelect.innerHTML = '<option value="">Select a loaded model</option>' +
-          models.map((model) => '<option value="' + escapeHtml(model) + '">' + escapeHtml(model) + '</option>').join('');
-        els.modelSelect.hidden = false;
-        showSettingsNotice(models.length + ' models loaded.', false);
-        showToast(models.length + ' models loaded.');
+        els.modelList.innerHTML = '';
+        els.modelSelect.innerHTML = '';
+        els.modelSelect.hidden = true;
+        state.llmCheckSignature = els.llmModel.value.trim() ? getLlmSignature() : '';
+        updateLlmSaveState();
+        showSettingsNotice('LLM connection checked.', false);
+        showToast('LLM connection checked.');
       } catch (error) {
         showSettingsNotice(error.message, true);
         showToast(error.message, true);
       } finally {
         els.loadModels.disabled = false;
+        updateLlmSaveState();
+      }
+    }
+
+    async function testTelegramConnection() {
+      els.testTelegram.disabled = true;
+      state.telegramCheckSignature = '';
+      updateTelegramSaveState();
+      showTelegramNotice('Testing Telegram connection...', false);
+
+      try {
+        const response = await api('/api/settings/channels/telegram/test', {
+          method: 'POST',
+          body: JSON.stringify({
+            botToken: els.telegramBotToken.value
+          })
+        });
+        state.telegramCheckSignature = getTelegramSignature();
+        renderTelegramStatus({
+          ...(response.telegram || {}),
+          botToken: els.telegramBotToken.value,
+          configured: true
+        });
+        showTelegramNotice('Telegram connection checked.', false);
+        showToast('Telegram connection checked.');
+      } catch (error) {
+        showTelegramNotice(error.message, true);
+        showToast(error.message, true);
+      } finally {
+        els.testTelegram.disabled = false;
+        updateTelegramSaveState();
+      }
+    }
+
+    async function saveTelegramSettings(event) {
+      event.preventDefault();
+
+      if (state.telegramCheckSignature !== getTelegramSignature()) {
+        showTelegramNotice('Test the Telegram bot token before saving.', true);
+        showToast('Test Telegram before saving.', true);
+        updateTelegramSaveState();
+        return;
+      }
+
+      els.saveTelegram.disabled = true;
+
+      try {
+        const response = await api('/api/settings/channels/telegram', {
+          method: 'PUT',
+          body: JSON.stringify({
+            botToken: els.telegramBotToken.value
+          })
+        });
+
+        state.settings = response;
+        fillTelegramForm((response.channels && response.channels.telegram) || {});
+        showTelegramNotice('Telegram bot saved.', false);
+        showToast('Telegram bot saved.');
+      } catch (error) {
+        showTelegramNotice(error.message, true);
+        showToast(error.message, true);
+      } finally {
+        updateTelegramSaveState();
       }
     }
 
@@ -1288,8 +1432,8 @@ export function renderDashboard(config) {
       const query = els.search.value.trim();
       const response = await api('/api/notes' + (query ? '?query=' + encodeURIComponent(query) : ''));
       state.notes = response.notes || [];
-      els.noteCount.textContent = response.stats?.noteCount ?? state.notes.length;
-      els.latestNote.textContent = 'Latest note: ' + (response.stats?.latestNoteAt ? formatDate(response.stats.latestNoteAt) : '-');
+      els.noteCount.textContent = response.stats && response.stats.noteCount !== undefined ? response.stats.noteCount : state.notes.length;
+      els.latestNote.textContent = 'Latest note: ' + (response.stats && response.stats.latestNoteAt ? formatDate(response.stats.latestNoteAt) : '-');
       renderNotes(state.notes);
     }
 
@@ -1413,8 +1557,8 @@ export function renderDashboard(config) {
 
     function renderInfo(info) {
       els.serviceStatus.textContent = 'Online';
-      els.noteCount.textContent = info.stats?.noteCount ?? '-';
-      els.modelStat.textContent = info.llm?.model || '-';
+      els.noteCount.textContent = info.stats && info.stats.noteCount !== undefined ? info.stats.noteCount : '-';
+      els.modelStat.textContent = info.llm && info.llm.model ? info.llm.model : '-';
     }
 
     function fillSettingsForm(llm) {
@@ -1424,7 +1568,21 @@ export function renderDashboard(config) {
       els.llmModel.value = llm.model || '';
       els.llmMaxContext.value = llm.maxContextNotes || 6;
       els.keyStatus.textContent = llm.hasApiKey ? 'API key saved on server.' : 'No API key saved.';
+      state.llmLoadedModels = [];
+      state.llmConnectionSignature = llm.configured ? getLlmConnectionSignature() : '';
+      state.llmCheckSignature = llm.configured ? getLlmSignature() : '';
+      els.modelList.innerHTML = '';
+      els.modelSelect.innerHTML = '';
+      els.modelSelect.hidden = true;
       updateProviderHints();
+      updateLlmSaveState();
+    }
+
+    function fillTelegramForm(telegram) {
+      els.telegramBotToken.value = telegram.botToken || '';
+      state.telegramCheckSignature = telegram.configured ? getTelegramSignature() : '';
+      renderTelegramStatus(telegram);
+      updateTelegramSaveState();
     }
 
     function updateProviderHints() {
@@ -1435,6 +1593,70 @@ export function renderDashboard(config) {
 
       els.llmBaseUrl.placeholder = hint.baseUrl;
       els.llmModel.placeholder = hint.model;
+    }
+
+    function markLlmSettingsDirty() {
+      state.llmCheckSignature = '';
+
+      if (state.llmConnectionSignature !== getLlmConnectionSignature()) {
+        state.llmLoadedModels = [];
+      }
+
+      updateLlmSaveState();
+    }
+
+    function markLoadedModelSelected() {
+      const model = els.llmModel.value.trim();
+
+      if (
+        model &&
+        state.llmConnectionSignature === getLlmConnectionSignature() &&
+        state.llmLoadedModels.includes(model)
+      ) {
+        state.llmCheckSignature = getLlmSignature();
+      } else {
+        state.llmCheckSignature = '';
+      }
+
+      updateLlmSaveState();
+    }
+
+    function updateLlmSaveState() {
+      const provider = els.llmProvider.value.trim();
+      els.saveSettings.disabled = Boolean(provider && state.llmCheckSignature !== getLlmSignature());
+    }
+
+    function getLlmConnectionSignature() {
+      return [
+        els.llmProvider.value.trim(),
+        els.llmBaseUrl.value.trim(),
+        els.llmClearKey.checked ? '' : getEffectiveLlmApiKey(),
+        els.llmMaxContext.value.trim()
+      ].join('\n');
+    }
+
+    function getLlmSignature() {
+      return [
+        getLlmConnectionSignature(),
+        els.llmModel.value.trim()
+      ].join('\n');
+    }
+
+    function getEffectiveLlmApiKey() {
+      return els.llmApiKey.value.trim() || (state.settings && state.settings.llm && state.settings.llm.apiKey) || '';
+    }
+
+    function markTelegramSettingsDirty() {
+      state.telegramCheckSignature = '';
+      updateTelegramSaveState();
+    }
+
+    function updateTelegramSaveState() {
+      els.saveTelegram.disabled = !getTelegramSignature() || state.telegramCheckSignature !== getTelegramSignature();
+    }
+
+    function getTelegramSignature() {
+      return els.telegramBotToken.value.trim();
     }
 
     function renderLlmStatus(llm) {
@@ -1449,6 +1671,19 @@ export function renderDashboard(config) {
 
       els.llmStatus.textContent = 'LLM is not configured yet.';
       els.askButton.disabled = true;
+    }
+
+    function renderTelegramStatus(telegram) {
+      if (telegram.configured) {
+        const name = telegram.botUsername ? '@' + telegram.botUsername : telegram.botFirstName || 'Telegram bot';
+        const checkedAt = telegram.validatedAt ? ' Checked ' + formatDate(telegram.validatedAt) + '.' : '';
+        els.telegramStatus.textContent = 'Connected: ' + name + '.' + checkedAt;
+        return;
+      }
+
+      els.telegramStatus.textContent = telegram.hasBotToken
+        ? 'Telegram token is saved, but it has not been validated yet.'
+        : 'No Telegram bot connected.';
     }
 
     function renderSources(sources) {
@@ -1572,6 +1807,13 @@ export function renderDashboard(config) {
       els.settingsNotice.classList.toggle('ok', !isError);
     }
 
+    function showTelegramNotice(message, isError) {
+      els.telegramNotice.textContent = message;
+      els.telegramNotice.hidden = false;
+      els.telegramNotice.classList.toggle('warn', Boolean(isError));
+      els.telegramNotice.classList.toggle('ok', !isError);
+    }
+
     function showLoginError(message) {
       els.loginError.textContent = message;
       els.loginError.hidden = false;
@@ -1583,6 +1825,14 @@ export function renderDashboard(config) {
       els.toggleApiKey.innerHTML = isHidden ? '&#128274;' : '&#128065;&#65039;';
       els.toggleApiKey.setAttribute('aria-label', isHidden ? 'Hide API key' : 'Show API key');
       els.toggleApiKey.setAttribute('title', isHidden ? 'Hide API key' : 'Show API key');
+    }
+
+    function toggleTelegramTokenVisibility() {
+      const isHidden = els.telegramBotToken.type === 'password';
+      els.telegramBotToken.type = isHidden ? 'text' : 'password';
+      els.toggleTelegramToken.innerHTML = isHidden ? '&#128274;' : '&#128065;&#65039;';
+      els.toggleTelegramToken.setAttribute('aria-label', isHidden ? 'Hide Telegram token' : 'Show Telegram token');
+      els.toggleTelegramToken.setAttribute('title', isHidden ? 'Hide Telegram token' : 'Show Telegram token');
     }
 
     function showToast(message, isError = false) {

@@ -169,6 +169,25 @@ export function createNoteStore(options = {}) {
         await writeSettingsFile(nextSettings);
         return nextSettings;
       });
+    },
+
+    async updateTelegramSettings(input = {}) {
+      return withWriteLock(async () => {
+        const settings = await readSettingsFile();
+        const currentChannels = settings.channels && typeof settings.channels === 'object' ? settings.channels : {};
+        const telegram = normaliseTelegramSettings(input);
+        const nextSettings = {
+          ...settings,
+          channels: {
+            ...currentChannels,
+            telegram
+          },
+          updatedAt: now().toISOString()
+        };
+
+        await writeSettingsFile(nextSettings);
+        return nextSettings;
+      });
     }
   };
 }
@@ -206,6 +225,16 @@ function normaliseLlmSettings(input, current = {}) {
   }
 
   return next;
+}
+
+function normaliseTelegramSettings(input = {}) {
+  return {
+    botToken: normaliseString(input.botToken),
+    botId: normaliseString(input.botId),
+    botUsername: normaliseString(input.botUsername),
+    botFirstName: normaliseString(input.botFirstName),
+    validatedAt: normaliseString(input.validatedAt)
+  };
 }
 
 function parsePositiveInt(value, fallback) {

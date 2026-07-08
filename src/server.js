@@ -4,7 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 import { renderDashboard } from './dashboard-app.js';
-import { answerFromNotes, isLlmConfigured, loadLlmModels, resolveLlmConfig } from './llm.js';
+import { answerFromNotes, checkLlmConnection, isLlmConfigured, loadLlmModels, resolveLlmConfig } from './llm.js';
 import { createNoteStore } from './storage.js';
 
 const DEFAULT_PORT = 3000;
@@ -74,11 +74,23 @@ async function routeRequest(request, response, config, store, dependencies) {
     }
 
     if (url.pathname === '/api/settings/llm') {
-      return handleLlmSettings(request, response, method, config, store);
+      return handleLlmSettings(request, response, method, config, store, dependencies);
+    }
+
+    if (url.pathname === '/api/settings/llm/check') {
+      return handleLlmCheck(request, response, method, config, store, dependencies);
     }
 
     if (url.pathname === '/api/settings/llm/models') {
       return handleLlmModels(request, response, method, config, store, dependencies);
+    }
+
+    if (url.pathname === '/api/settings/channels/telegram/test') {
+      return handleTelegramTest(request, response, method, config, dependencies);
+    }
+
+    if (url.pathname === '/api/settings/channels/telegram') {
+      return handleTelegramSettings(request, response, method, config, store, dependencies);
     }
 
     if (url.pathname === '/api/notes') {
@@ -307,7 +319,7 @@ async function handleSettings(request, response, method, config, store) {
   return sendJson(response, 200, await settingsPayload(config, store), method);
 }
 
-async function handleLlmSettings(request, response, method, config, store) {
+async function handleLlmSettings(request, response, method, config, store, dependencies) {
   if (!allowsMethod(method, ['PUT'])) {
     return methodNotAllowed(response, ['PUT'], method);
   }
@@ -317,10 +329,38 @@ async function handleLlmSettings(request, response, method, config, store) {
   }
 
   const payload = await readRequestJson(request);
+  const llm = await getEffectiveLlmConfig(config, store, payload);
+
+  if (llm.provider) {
+    await checkLlmConnection({
+      config: llm,
+      fetchImpl: dependencies.fetchImpl,
+      requireModel: true
+    });
+  }
 
   await store.updateLlmSettings(payload);
 
   return sendJson(response, 200, await settingsPayload(config, store), method);
+}
+
+async function handleLlmCheck(request, response, method, config, store, dependencies) {
+  if (!allowsMethod(method, ['POST'])) {
+    return methodNotAllowed(response, ['POST'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const payload = await readRequestJson(request);
+  const llm = await getEffectiveLlmConfig(config, store, payload);
+  const result = await checkLlmConnection({
+    config: llm,
+    fetchImpl: dependencies.fetchImpl
+  });
+
+  return sendJson(response, 200, result, method);
 }
 
 async function handleLlmModels(request, response, method, config, store, dependencies) {
@@ -340,6 +380,41 @@ async function handleLlmModels(request, response, method, config, store, depende
   });
 
   return sendJson(response, 200, { models }, method);
+}
+
+async function handleTelegramTest(request, response, method, config, dependencies) {
+  if (!allowsMethod(method, ['POST'])) {
+    return methodNotAllowed(response, ['POST'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const payload = await readRequestJson(request);
+  const telegram = await testTelegramBotToken(payload.botToken, dependencies.fetchImpl);
+
+  return sendJson(response, 200, { ok: true, telegram }, method);
+}
+
+async function handleTelegramSettings(request, response, method, config, store, dependencies) {
+  if (!allowsMethod(method, ['PUT'])) {
+    return methodNotAllowed(response, ['PUT'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const payload = await readRequestJson(request);
+  const telegram = await testTelegramBotToken(payload.botToken, dependencies.fetchImpl);
+
+  await store.updateTelegramSettings({
+    botToken: payload.botToken,
+    ...telegram
+  });
+
+  return sendJson(response, 200, await settingsPayload(config, store), method);
 }
 
 async function handleAsk(request, response, method, config, store, dependencies) {
@@ -368,6 +443,7 @@ async function settingsPayload(config, store) {
   const settings = await store.readSettings();
   const llm = await getEffectiveLlmConfig(config, store);
   const savedLlm = getSavedLlmSettings(settings);
+  const savedTelegram = getSavedTelegramSettings(settings);
 
   return {
     llm: {
@@ -380,6 +456,17 @@ async function settingsPayload(config, store) {
       hasApiKey: Boolean(llm.apiKey),
       saved: Boolean(settings.llm),
       savedHasApiKey: Boolean(savedLlm.apiKey)
+    },
+    channels: {
+      telegram: {
+        botToken: savedTelegram.botToken || '',
+        botId: savedTelegram.botId || '',
+        botUsername: savedTelegram.botUsername || '',
+        botFirstName: savedTelegram.botFirstName || '',
+        validatedAt: savedTelegram.validatedAt || null,
+        configured: Boolean(savedTelegram.botToken && savedTelegram.validatedAt),
+        hasBotToken: Boolean(savedTelegram.botToken)
+      }
     }
   };
 }
@@ -405,13 +492,24 @@ function getSavedLlmSettings(settings) {
   return settings.llm && typeof settings.llm === 'object' ? settings.llm : {};
 }
 
+function getSavedTelegramSettings(settings) {
+  const channels = settings.channels && typeof settings.channels === 'object' ? settings.channels : {};
+  return channels.telegram && typeof channels.telegram === 'object' ? channels.telegram : {};
+}
+
 function normaliseLlmOverrides(input = {}) {
   const overrides = {};
 
-  for (const key of ['provider', 'apiKey', 'baseUrl', 'model', 'maxContextNotes']) {
-    if (Object.prototype.hasOwnProperty.call(input, key) && input[key] !== '') {
+  for (const key of ['provider', 'baseUrl', 'model', 'maxContextNotes']) {
+    if (Object.prototype.hasOwnProperty.call(input, key) && input[key] !== undefined) {
       overrides[key] = input[key];
     }
+  }
+
+  if (input.clearApiKey) {
+    overrides.apiKey = '';
+  } else if (Object.prototype.hasOwnProperty.call(input, 'apiKey') && input.apiKey !== '') {
+    overrides.apiKey = input.apiKey;
   }
 
   return overrides;
@@ -423,6 +521,53 @@ function readLlmField(settings, key, fallback) {
   }
 
   return fallback;
+}
+
+async function testTelegramBotToken(botToken, fetchImpl) {
+  const token = typeof botToken === 'string' ? botToken.trim() : '';
+
+  if (!token) {
+    throw createHttpError('Telegram bot token is required.', 400, 'telegram_token_required');
+  }
+
+  if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) {
+    throw createHttpError('Telegram bot token format is invalid.', 400, 'telegram_token_invalid');
+  }
+
+  const response = await fetchImpl(`https://api.telegram.org/bot${token}/getMe`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json'
+    }
+  });
+  const text = await response.text();
+  let body = {};
+
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    throw createHttpError('Telegram returned an invalid JSON response.', 502, 'telegram_invalid_response');
+  }
+
+  if (!response.ok || body.ok !== true) {
+    throw createHttpError(body.description || 'Telegram connection check failed.', 400, 'telegram_check_failed');
+  }
+
+  const result = body.result && typeof body.result === 'object' ? body.result : {};
+
+  return {
+    botId: result.id === undefined ? '' : String(result.id),
+    botUsername: typeof result.username === 'string' ? result.username : '',
+    botFirstName: typeof result.first_name === 'string' ? result.first_name : '',
+    validatedAt: new Date().toISOString()
+  };
+}
+
+function createHttpError(message, statusCode, code) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 }
 
 function isAuthorized(config, request) {

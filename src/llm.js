@@ -66,6 +66,45 @@ export async function loadLlmModels({ config, fetchImpl = fetch }) {
   throw error;
 }
 
+export async function checkLlmConnection({ config, fetchImpl = fetch, requireModel = false }) {
+  if (!config?.provider) {
+    return { ok: true, models: [] };
+  }
+
+  if (!config.baseUrl || (config.provider !== 'ollama' && !config.apiKey)) {
+    throw createLlmError(
+      'Provider, base URL, and API key are required before saving LLM settings.',
+      400,
+      'llm_check_missing_config'
+    );
+  }
+
+  if (requireModel && !config.model) {
+    throw createLlmError('A model is required before saving LLM settings.', 400, 'llm_model_required');
+  }
+
+  if (config.provider === 'openai-compatible' || config.provider === 'ollama') {
+    const models = await loadLlmModels({ config, fetchImpl });
+
+    if (config.model && models.length && !models.includes(config.model)) {
+      throw createLlmError('Selected model was not returned by the provider.', 400, 'llm_model_not_available');
+    }
+
+    return { ok: true, models };
+  }
+
+  if (config.provider === 'anthropic') {
+    if (!config.model) {
+      throw createLlmError('A model is required to check Anthropic-compatible settings.', 400, 'llm_model_required');
+    }
+
+    await checkAnthropicConnection(config, fetchImpl);
+    return { ok: true, models: [] };
+  }
+
+  throw createLlmError('Unsupported LLM provider.', 400, 'unsupported_llm_provider');
+}
+
 export function rankNotesForQuestion(notes, question) {
   const terms = tokenise(question);
 
@@ -271,6 +310,29 @@ async function callAnthropic(config, messages, fetchImpl) {
   return normaliseString(body.content?.find((item) => item.type === 'text')?.text);
 }
 
+async function checkAnthropicConnection(config, fetchImpl) {
+  const response = await fetchImpl(`${config.baseUrl}/messages`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 1,
+      messages: [
+        {
+          role: 'user',
+          content: 'Return OK.'
+        }
+      ]
+    })
+  });
+
+  await parseJsonResponse(response);
+}
+
 async function callOllama(config, messages, fetchImpl) {
   const headers = {
     'Content-Type': 'application/json'
@@ -357,6 +419,13 @@ function getOllamaTagsUrl(baseUrl) {
 
 function normaliseModelIds(values) {
   return [...new Set(values.map(normaliseString).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+}
+
+function createLlmError(message, statusCode, code) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 }
 
 async function parseJsonResponse(response) {

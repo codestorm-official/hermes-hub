@@ -180,6 +180,19 @@ test('llm settings api saves provider config and ask uses it', async (t) => {
     fetchImpl: async (url, options) => {
       calls.push({ url, options });
 
+      if (url.endsWith('/models')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'test-model' }
+          ]
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+
       return new Response(JSON.stringify({
         choices: [
           {
@@ -234,9 +247,11 @@ test('llm settings api saves provider config and ask uses it', async (t) => {
   const askedBody = await asked.json();
 
   assert.equal(asked.status, 200);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://llm.example.com/v1/chat/completions');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, 'https://llm.example.com/v1/models');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer test-key');
+  assert.equal(calls[1].url, 'https://llm.example.com/v1/chat/completions');
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer test-key');
   assert.equal(askedBody.answer, 'Dokploy routes to internal port 3000.');
 });
 
@@ -279,6 +294,125 @@ test('llm model loader returns openai-compatible model ids', async (t) => {
   assert.equal(calls[0].url, 'https://llm.example.com/v1/models');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer test-key');
   assert.deepEqual(body.models, ['alpha-model', 'zeta-model']);
+});
+
+test('llm settings api rejects save when selected model is not available', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const calls = [];
+  const { baseUrl, close } = await startServer({
+    dataDir,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'different-model' }
+        ]
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+  t.after(close);
+
+  const response = await fetch(`${baseUrl}/api/settings/llm`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      provider: 'openai-compatible',
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example.com/v1',
+      model: 'test-model',
+      maxContextNotes: 4
+    })
+  });
+  const body = await response.json();
+  const settings = await fetch(`${baseUrl}/api/settings`);
+  const settingsBody = await settings.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.error, 'llm_model_not_available');
+  assert.equal(calls.length, 1);
+  assert.equal(settingsBody.llm.configured, false);
+});
+
+test('telegram settings api tests and saves a valid bot token', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const calls = [];
+  const token = '123456789:abc_DEF-123';
+  const { baseUrl, close } = await startServer({
+    dataDir,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        result: {
+          id: 123456789,
+          username: 'hermes_bot',
+          first_name: 'Hermes'
+        }
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+  t.after(close);
+
+  const tested = await fetch(`${baseUrl}/api/settings/channels/telegram/test`, {
+    method: 'POST',
+    body: JSON.stringify({ botToken: token })
+  });
+  const testedBody = await tested.json();
+  const saved = await fetch(`${baseUrl}/api/settings/channels/telegram`, {
+    method: 'PUT',
+    body: JSON.stringify({ botToken: token })
+  });
+  const savedBody = await saved.json();
+
+  assert.equal(tested.status, 200);
+  assert.equal(testedBody.telegram.botUsername, 'hermes_bot');
+  assert.equal(saved.status, 200);
+  assert.equal(savedBody.channels.telegram.configured, true);
+  assert.equal(savedBody.channels.telegram.botToken, token);
+  assert.equal(savedBody.channels.telegram.botId, '123456789');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, `https://api.telegram.org/bot${token}/getMe`);
+});
+
+test('telegram settings api rejects failed bot token checks', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const { baseUrl, close } = await startServer({
+    dataDir,
+    fetchImpl: async () => new Response(JSON.stringify({
+      ok: false,
+      description: 'Unauthorized'
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+  });
+  t.after(close);
+
+  const response = await fetch(`${baseUrl}/api/settings/channels/telegram`, {
+    method: 'PUT',
+    body: JSON.stringify({ botToken: '123456789:badtoken' })
+  });
+  const body = await response.json();
+  const settings = await fetch(`${baseUrl}/api/settings`);
+  const settingsBody = await settings.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.error, 'telegram_check_failed');
+  assert.equal(settingsBody.channels.telegram.configured, false);
+  assert.equal(settingsBody.channels.telegram.hasBotToken, false);
 });
 
 test('answerFromNotes sends matching notes to an openai-compatible llm', async () => {

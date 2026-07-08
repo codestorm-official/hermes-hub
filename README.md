@@ -18,14 +18,15 @@ The project is intentionally simple:
 - Token login using `HERMES_TOKEN`.
 - Notes API for programmatic capture and search.
 - Ask Notes / basic RAG over saved notes.
-- LLM Settings UI for provider, base URL, API key, model, and context size.
-- Load Models support for OpenAI-compatible providers and Ollama.
+- LLM Settings UI for provider, base URL, API key, model, context size, and connection checks before saving.
+- Check / Load Models support for OpenAI-compatible providers and Ollama.
+- Channel Settings UI for validating and saving a Telegram bot token.
 - Persistent notes at `/app/data/notes.json`.
 - Persistent dashboard settings at `/app/data/settings.json`.
 - Health endpoints for deployment checks.
 - Logo and favicon served from `/logo.svg` and `/favicon.svg`.
 
-Hermes Hub is still an MVP. It is not yet a full AI agent, Telegram bot, Obsidian sync engine, or browser controller. The current goal is to provide a reliable control plane that can grow into those workflows safely.
+Hermes Hub is still an MVP. It is not yet a full AI agent, Telegram chat bot, Obsidian sync engine, or browser controller. The current goal is to provide a reliable control plane that can grow into those workflows safely.
 
 ## Current AI Status
 
@@ -36,7 +37,9 @@ There are two ways to configure the LLM:
 - Use the dashboard `Settings` menu.
 - Use `LLM_*` environment variables as bootstrap defaults.
 
-Dashboard settings are stored in `/app/data/settings.json` and override environment defaults. After login, the dashboard can show the saved API key with the eye button in `Settings`, so anyone who can access the dashboard should be treated as an admin who can view secrets.
+Dashboard settings are stored in `/app/data/settings.json` and override environment defaults. After login, the dashboard can show saved secrets with the eye buttons in `Settings`, so anyone who can access the dashboard should be treated as an admin who can view secrets.
+
+LLM settings cannot be saved while a provider is selected until the connection check succeeds. For OpenAI-compatible providers and Ollama, the `Check / Load Models` button calls the provider model-list endpoint and verifies the selected model when a model list is available. For Anthropic-compatible providers, Hermes checks the `/messages` endpoint with a tiny request because model-list endpoints are not standardized.
 
 Supported providers:
 
@@ -48,6 +51,12 @@ Supported providers:
 | empty | Notes/search only. | None |
 
 Ask Notes currently uses keyword scoring to choose relevant notes, sends those notes to the configured LLM, and asks the model to answer only from the provided context. Embeddings/vector search are not implemented yet.
+
+## Current Channel Status
+
+Telegram channel settings are available from the dashboard. Add a Telegram bot token, click `Test Connection`, then save it after the check succeeds. Hermes validates the token through Telegram `getMe` before writing it to `/app/data/settings.json`.
+
+Telegram capture, notifications, chat commands, user allowlists, and reply workflows are not implemented yet.
 
 ## Architecture
 
@@ -131,11 +140,14 @@ https://hermes.example.com
 1. Open the Hermes Hub dashboard.
 2. Login with the same value as `HERMES_TOKEN`.
 3. Open `Settings` to configure the LLM provider, base URL, API key, model, and context size.
-4. Type a model manually or click `Load Models` if the provider supports model listing.
-5. Open `Capture` to save notes.
-6. Open `Notes` to search, view, and delete notes.
-7. Open `Ask` to ask questions over saved notes.
-8. Click `Logout` to clear the browser session token.
+4. Click `Check / Load Models`.
+5. Select a loaded model or type a model and run the check successfully.
+6. Save the LLM settings.
+7. In `Channel Settings`, paste a Telegram bot token, click `Test Connection`, then save it after the check succeeds.
+8. Open `Capture` to save notes.
+9. Open `Notes` to search, view, and delete notes.
+10. Open `Ask` to ask questions over saved notes.
+11. Click `Logout` to clear the browser session token.
 
 The browser stores the token in `sessionStorage`, so closing the tab or logging out clears it.
 
@@ -193,7 +205,10 @@ curl -X POST https://hermes.example.com/api/ask \
 - `/api/session` - validates the dashboard login token
 - `/api/settings` - returns UI-safe settings for the dashboard
 - `/api/settings/llm` - saves LLM settings
+- `/api/settings/llm/check` - checks LLM connectivity before saving
 - `/api/settings/llm/models` - loads model names from the provider
+- `/api/settings/channels/telegram/test` - validates a Telegram bot token through Telegram `getMe`
+- `/api/settings/channels/telegram` - saves Telegram bot settings after validation
 - `/api/notes` - lists and creates notes
 - `/api/notes/:id` - deletes a note
 - `/api/ask` - asks the configured LLM using relevant notes as context
@@ -207,7 +222,7 @@ Recommended public deployment flow:
 1. Set the core variables first: `APP_AUTHOR`, `APP_NAME`, `APP_URL`, `DATA_DIR`, `HERMES_TOKEN`, `LOG_LEVEL`, and `TRUST_PROXY`.
 2. Leave `LLM_*` empty unless you want server-side bootstrap defaults.
 3. Deploy the app.
-4. Login to the dashboard and configure the LLM from `Settings`.
+4. Login to the dashboard and configure the LLM and channel settings from `Settings`.
 
 Environment variables:
 
@@ -226,6 +241,8 @@ Environment variables:
 | `LLM_MAX_CONTEXT_NOTES` | `6` | Maximum number of notes sent to the LLM as context. |
 | `LOG_LEVEL` | `info` | Reserved for future logging configuration. |
 | `TRUST_PROXY` | `true` | Enables `X-Forwarded-For` support behind Dokploy/reverse proxies. |
+
+Telegram bot tokens are configured from the dashboard `Settings` page and are stored in `/app/data/settings.json`; there is no Telegram environment variable by default.
 
 Minimal production example:
 
@@ -452,6 +469,8 @@ Dashboard settings are stored at:
 /app/data/settings.json
 ```
 
+This file can contain LLM API keys and Telegram bot tokens if they are configured from the dashboard.
+
 Both are persisted by the Docker volume:
 
 ```text
@@ -467,8 +486,8 @@ For public deployments:
 - Set a long random `HERMES_TOKEN`.
 - Use HTTPS.
 - Do not commit `.env`.
-- Treat `settings.json` as sensitive if it contains an LLM API key.
-- Treat anyone who can log into the dashboard as someone who can view the LLM API key.
+- Treat `settings.json` as sensitive if it contains an LLM API key or Telegram bot token.
+- Treat anyone who can log into the dashboard as someone who can view saved secrets.
 - Back up `hermes-data`.
 - Avoid storing highly sensitive secrets in notes until encryption and stronger access controls exist.
 - Require approval before adding integrations that can post, reply, delete, follow, message, transact, or change external accounts.
@@ -533,7 +552,7 @@ Suggested next steps:
 1. Audit log for note changes, token usage, provider errors, and important actions.
 2. SQLite storage for stronger query and durability guarantees.
 3. Full-text search for better note retrieval.
-4. Provider validation with connection tests and clearer errors.
+4. Provider error history and clearer operational diagnostics.
 5. Stronger RAG with embeddings/vector search and sensitive-note controls.
 6. Telegram capture with user allowlist.
 7. Approval center for pending actions.
@@ -561,4 +580,5 @@ Suggested next steps:
 - If notes disappear after redeploy, make sure volume `hermes-data` is active.
 - If local port `3000` is busy, set `HOST_PORT=3001` or another free port.
 - If the health check fails, inspect logs with `docker compose logs -f hermes`.
-- If `Load Models` fails for an Anthropic-compatible provider, type the model name manually. Model-list endpoints are not standardized across Anthropic-compatible providers.
+- If `Check / Load Models` fails for an Anthropic-compatible provider, make sure the model name is filled. Model-list endpoints are not standardized across Anthropic-compatible providers, so Hermes checks the `/messages` endpoint instead.
+- If Telegram settings cannot be saved, click `Test Connection` first and confirm the bot token is valid in Telegram BotFather.
