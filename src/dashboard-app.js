@@ -784,7 +784,7 @@ export function renderDashboard(config) {
   </style>
 </head>
 <body>
-  <section id="login-screen" class="login-screen" hidden>
+  <section id="login-screen" class="login-screen">
     <div class="login-card">
       <div class="login-brand">
         <img class="mark" src="/logo.svg" alt="" aria-hidden="true">

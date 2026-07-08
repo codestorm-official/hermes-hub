@@ -45,6 +45,7 @@ test('home page renders configured service name', async (t) => {
   assert.match(response.headers.get('content-type'), /text\/html/);
   assert.match(body, /Hermes Test Hub/);
   assert.match(body, /Built by Asep Saputra/);
+  assert.match(body, /<section id="login-screen" class="login-screen">/);
 });
 
 test('logo and favicon assets are served', async (t) => {
