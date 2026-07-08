@@ -1,0 +1,15 @@
+{
+  "name": "hermes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hermes service scaffold ready for Docker Compose and Dokploy.",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node tests/server.test.js",
+    "check": "node --check src/server.js && node --check tests/server.test.js"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
