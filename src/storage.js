@@ -233,7 +233,10 @@ function normaliseTelegramSettings(input = {}) {
     botId: normaliseString(input.botId),
     botUsername: normaliseString(input.botUsername),
     botFirstName: normaliseString(input.botFirstName),
-    validatedAt: normaliseString(input.validatedAt)
+    validatedAt: normaliseString(input.validatedAt),
+    webhookSecret: normaliseString(input.webhookSecret),
+    webhookUrl: normaliseString(input.webhookUrl),
+    webhookSetAt: normaliseString(input.webhookSetAt)
   };
 }
 

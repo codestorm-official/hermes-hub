@@ -629,6 +629,171 @@ async function testTelegramBotToken(botToken, fetchImpl) {
   };
 }
 
+async function configureTelegramWebhook({ appUrl, botToken, fetchImpl, webhookSecret }) {
+  const webhookUrl = getTelegramWebhookUrl(appUrl);
+
+  if (!webhookUrl) {
+    return {
+      webhookSecret,
+      webhookUrl: '',
+      webhookSetAt: ''
+    };
+  }
+
+  const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      url: webhookUrl,
+      secret_token: webhookSecret,
+      allowed_updates: ['message']
+    })
+  });
+
+  await readTelegramResponse(response, 'telegram_webhook_failed');
+
+  return {
+    webhookSecret,
+    webhookUrl,
+    webhookSetAt: new Date().toISOString()
+  };
+}
+
+function getTelegramWebhookUrl(appUrl) {
+  try {
+    const url = new URL('/telegram/webhook', appUrl);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+function createTelegramWebhookSecret() {
+  return randomBytes(32).toString('hex');
+}
+
+async function processTelegramUpdate(update, config, store, dependencies, telegram) {
+  const message = update.message || update.edited_message || {};
+  const chatId = message.chat?.id;
+  const text = normaliseString(message.text);
+
+  if (!chatId || !text) {
+    return;
+  }
+
+  if (isTelegramCommand(text, 'start') || isTelegramCommand(text, 'help')) {
+    await sendTelegramMessage(
+      telegram.botToken,
+      chatId,
+      'Send a question here and Hermes will answer from your saved notes. You can also use /ask followed by a question.',
+      dependencies.fetchImpl
+    );
+    return;
+  }
+
+  const question = normaliseTelegramQuestion(text);
+
+  if (!question) {
+    await sendTelegramMessage(telegram.botToken, chatId, 'Send /ask followed by a question.', dependencies.fetchImpl);
+    return;
+  }
+
+  try {
+    const notes = await store.listNotes();
+    const llm = await getEffectiveLlmConfig(config, store);
+    const answer = await answerFromNotes({
+      question,
+      notes,
+      config: llm,
+      fetchImpl: dependencies.fetchImpl
+    });
+
+    await sendTelegramMessage(telegram.botToken, chatId, formatTelegramAnswer(answer), dependencies.fetchImpl);
+  } catch (error) {
+    const messageText = error.code === 'llm_not_configured'
+      ? 'LLM is not configured yet. Configure it from the Hermes dashboard Settings menu.'
+      : error.message || 'Hermes could not answer that question.';
+
+    await sendTelegramMessage(telegram.botToken, chatId, messageText, dependencies.fetchImpl);
+  }
+}
+
+function isTelegramCommand(text, command) {
+  const firstToken = normaliseString(text).split(/\s+/)[0] || '';
+  return firstToken.toLowerCase().split('@')[0] === `/${command}`;
+}
+
+function normaliseTelegramQuestion(text) {
+  const cleanText = normaliseString(text);
+  const [firstToken, ...rest] = cleanText.split(/\s+/);
+  const command = firstToken.toLowerCase().split('@')[0];
+
+  if (command === '/ask') {
+    return rest.join(' ').trim();
+  }
+
+  return cleanText.startsWith('/') ? '' : cleanText;
+}
+
+function formatTelegramAnswer(answer) {
+  const body = normaliseString(answer.answer) || 'No answer returned.';
+  const sources = Array.isArray(answer.sources) ? answer.sources : [];
+  const sourceText = sources.length
+    ? '\n\nSources:\n' + sources.map((source) => '- ' + (source.title || source.id)).join('\n')
+    : '';
+
+  return truncateTelegramMessage(body + sourceText);
+}
+
+async function sendTelegramMessage(botToken, chatId, text, fetchImpl) {
+  const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: truncateTelegramMessage(text),
+      disable_web_page_preview: true
+    })
+  });
+
+  await readTelegramResponse(response, 'telegram_send_failed');
+}
+
+function truncateTelegramMessage(text) {
+  const cleanText = normaliseString(text);
+
+  if (cleanText.length <= 3900) {
+    return cleanText;
+  }
+
+  return cleanText.slice(0, 3897) + '...';
+}
+
+async function readTelegramResponse(response, errorCode) {
+  const text = await response.text();
+  let body = {};
+
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    throw createHttpError('Telegram returned an invalid JSON response.', 502, 'telegram_invalid_response');
+  }
+
+  if (!response.ok || body.ok !== true) {
+    throw createHttpError(body.description || 'Telegram request failed.', 400, errorCode);
+  }
+
+  return body;
+}
+
+function normaliseString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function createHttpError(message, statusCode, code) {
   const error = new Error(message);
   error.statusCode = statusCode;

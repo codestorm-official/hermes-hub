@@ -1691,7 +1691,10 @@ export function renderDashboard(config) {
       if (telegram.configured) {
         const name = telegram.botUsername ? '@' + telegram.botUsername : telegram.botFirstName || 'Telegram bot';
         const checkedAt = telegram.validatedAt ? ' Checked ' + formatDate(telegram.validatedAt) + '.' : '';
-        els.telegramStatus.textContent = 'Connected: ' + name + '.' + checkedAt;
+        const webhook = telegram.webhookConfigured
+          ? ' Webhook active.'
+          : ' Webhook is not active. Set APP_URL to your HTTPS domain, save again, then chat with the bot.';
+        els.telegramStatus.textContent = 'Connected: ' + name + '.' + checkedAt + webhook;
         return;
       }
 

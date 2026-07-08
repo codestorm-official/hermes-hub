@@ -393,6 +393,212 @@ test('telegram settings api tests and saves a valid bot token', async (t) => {
   assert.equal(calls[0].url, `https://api.telegram.org/bot${token}/getMe`);
 });
 
+test('telegram settings api configures webhook when app url is https', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const calls = [];
+  const token = '123456789:abc_DEF-123';
+  const { baseUrl, close } = await startServer({
+    appUrl: 'https://hermes.example.com',
+    dataDir,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      if (url.endsWith('/setWebhook')) {
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+
+      return new Response(JSON.stringify({
+        ok: true,
+        result: {
+          id: 123456789,
+          username: 'hermes_bot',
+          first_name: 'Hermes'
+        }
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+  t.after(close);
+
+  const saved = await fetch(`${baseUrl}/api/settings/channels/telegram`, {
+    method: 'PUT',
+    body: JSON.stringify({ botToken: token })
+  });
+  const savedBody = await saved.json();
+  const webhookCall = calls.find((call) => call.url.endsWith('/setWebhook'));
+  const webhookPayload = JSON.parse(webhookCall.options.body);
+
+  assert.equal(saved.status, 200);
+  assert.equal(savedBody.channels.telegram.webhookConfigured, true);
+  assert.equal(savedBody.channels.telegram.webhookUrl, 'https://hermes.example.com/telegram/webhook');
+  assert.equal(webhookPayload.url, 'https://hermes.example.com/telegram/webhook');
+  assert.match(webhookPayload.secret_token, /^[a-f0-9]{64}$/);
+});
+
+test('telegram webhook answers chat messages from saved notes', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const token = '123456789:abc_DEF-123';
+  const sentMessages = [];
+  let webhookSecret = '';
+  const { baseUrl, close } = await startServer({
+    appUrl: 'https://hermes.example.com',
+    dataDir,
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/models')) {
+        return jsonResponse({
+          data: [
+            { id: 'test-model' }
+          ]
+        });
+      }
+
+      if (url.endsWith('/chat/completions')) {
+        return jsonResponse({
+          choices: [
+            {
+              message: {
+                content: 'Dokploy uses internal port 3000.'
+              }
+            }
+          ]
+        });
+      }
+
+      if (url.endsWith('/getMe')) {
+        return jsonResponse({
+          ok: true,
+          result: {
+            id: 123456789,
+            username: 'hermes_bot',
+            first_name: 'Hermes'
+          }
+        });
+      }
+
+      if (url.endsWith('/setWebhook')) {
+        const body = JSON.parse(options.body);
+        webhookSecret = body.secret_token;
+        return jsonResponse({ ok: true, result: true });
+      }
+
+      if (url.endsWith('/sendMessage')) {
+        sentMessages.push(JSON.parse(options.body));
+        return jsonResponse({
+          ok: true,
+          result: {
+            message_id: 1
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }
+  });
+  t.after(close);
+
+  await fetch(`${baseUrl}/api/settings/llm`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      provider: 'openai-compatible',
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example.com/v1',
+      model: 'test-model',
+      maxContextNotes: 4
+    })
+  });
+  await fetch(`${baseUrl}/api/notes`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Dokploy route',
+      content: 'Route Hermes to internal port 3000.',
+      tags: 'deploy',
+      source: 'manual'
+    })
+  });
+  await fetch(`${baseUrl}/api/settings/channels/telegram`, {
+    method: 'PUT',
+    body: JSON.stringify({ botToken: token })
+  });
+
+  const response = await fetch(`${baseUrl}/telegram/webhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Telegram-Bot-Api-Secret-Token': webhookSecret
+    },
+    body: JSON.stringify({
+      update_id: 1,
+      message: {
+        message_id: 10,
+        chat: {
+          id: 42
+        },
+        text: 'How is Dokploy routed?'
+      }
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].chat_id, 42);
+  assert.match(sentMessages[0].text, /Dokploy uses internal port 3000/);
+  assert.match(sentMessages[0].text, /Sources:/);
+});
+
+test('telegram webhook rejects missing secret header', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const token = '123456789:abc_DEF-123';
+  const { baseUrl, close } = await startServer({
+    appUrl: 'https://hermes.example.com',
+    dataDir,
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/setWebhook')) {
+        return jsonResponse({ ok: true, result: true });
+      }
+
+      return jsonResponse({
+        ok: true,
+        result: {
+          id: 123456789,
+          username: 'hermes_bot',
+          first_name: 'Hermes'
+        }
+      });
+    }
+  });
+  t.after(close);
+
+  await fetch(`${baseUrl}/api/settings/channels/telegram`, {
+    method: 'PUT',
+    body: JSON.stringify({ botToken: token })
+  });
+
+  const response = await fetch(`${baseUrl}/telegram/webhook`, {
+    method: 'POST',
+    body: JSON.stringify({
+      message: {
+        chat: {
+          id: 42
+        },
+        text: 'Hello'
+      }
+    })
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.error, 'telegram_webhook_unauthorized');
+});
+
 test('telegram settings api rejects failed bot token checks', async (t) => {
   const dataDir = await createTempDataDir(t);
   const { baseUrl, close } = await startServer({
@@ -583,6 +789,15 @@ test('unsupported routes and methods are explicit', async (t) => {
   assert.equal(methodNotAllowed.status, 405);
   assert.equal(methodNotAllowed.headers.get('allow'), 'GET, HEAD');
 });
+
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  });
+}
 
 async function startServer(options = {}) {
   const server = createHermesServer(options);
