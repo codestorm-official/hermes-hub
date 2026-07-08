@@ -347,6 +347,7 @@ async function settingsPayload(config, store) {
       baseUrl: llm.baseUrl || '',
       model: llm.model || '',
       maxContextNotes: llm.maxContextNotes,
+      apiKey: llm.apiKey || '',
       configured: isLlmConfigured(llm),
       hasApiKey: Boolean(llm.apiKey),
       saved: Boolean(settings.llm),

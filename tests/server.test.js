@@ -99,6 +99,7 @@ test('session and settings api require token when configured', async (t) => {
   assert.equal(authorizedSettings.status, 200);
   assert.equal(settingsBody.llm.configured, false);
   assert.equal(settingsBody.llm.hasApiKey, false);
+  assert.equal(settingsBody.llm.apiKey, '');
 });
 
 test('notes api creates, searches, and deletes notes', async (t) => {
@@ -205,7 +206,7 @@ test('llm settings api saves provider config and ask uses it', async (t) => {
   assert.equal(settings.status, 200);
   assert.equal(settingsBody.llm.configured, true);
   assert.equal(settingsBody.llm.hasApiKey, true);
-  assert.equal(Object.hasOwn(settingsBody.llm, 'apiKey'), false);
+  assert.equal(settingsBody.llm.apiKey, 'test-key');
 
   const asked = await fetch(`${baseUrl}/api/ask`, {
     method: 'POST',

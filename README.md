@@ -38,7 +38,7 @@ LLM bersifat opsional. Ada dua cara konfigurasi:
 - lewat menu `Settings` di dashboard;
 - lewat environment variables sebagai default/bootstrap config.
 
-Jika konfigurasi disimpan dari UI, nilainya disimpan di `/app/data/settings.json` dan akan dipakai oleh Hermes setelah redeploy selama volume `hermes-data` tetap ada. API key tidak pernah dikirim balik ke browser; dashboard hanya menampilkan status apakah API key sudah tersimpan atau belum.
+Jika konfigurasi disimpan dari UI, nilainya disimpan di `/app/data/settings.json` dan akan dipakai oleh Hermes setelah redeploy selama volume `hermes-data` tetap ada. Setelah login, dashboard bisa menampilkan API key dengan tombol mata di menu `Settings`; gunakan ini hanya untuk admin yang memang boleh melihat secret tersebut.
 
 Yang sudah ada:
 
@@ -252,6 +252,8 @@ Gunakan `.env.example` sebagai template. Untuk Docker lokal atau VPS manual, bua
 
 Mulai versi ini, variable `LLM_*` bersifat opsional sebagai default awal. Anda bisa membiarkannya kosong lalu mengatur provider dari dashboard `Settings`. Jika settings disimpan dari UI, settings tersebut akan override default dari environment.
 
+Rekomendasi paling sederhana untuk deploy publik: isi core env seperti `APP_URL`, `DATA_DIR`, `HERMES_TOKEN`, `LOG_LEVEL`, dan `TRUST_PROXY` terlebih dahulu. Setelah aplikasi hidup, login ke dashboard lalu isi provider LLM dari menu `Settings`.
+
 | Name | Default | Keterangan |
 | --- | --- | --- |
 | `APP_NAME` | `Hermes` | Nama service yang tampil di halaman dan health payload. |
@@ -267,7 +269,7 @@ Mulai versi ini, variable `LLM_*` bersifat opsional sebagai default awal. Anda b
 | `LOG_LEVEL` | `info` | Disiapkan untuk konfigurasi logging berikutnya. |
 | `TRUST_PROXY` | `true` | Aktifkan pembacaan `X-Forwarded-For`, cocok saat di belakang proxy Dokploy. |
 
-Contoh production:
+Contoh production minimal:
 
 ```env
 APP_NAME=Hermes
@@ -275,13 +277,25 @@ APP_URL=https://hermes.example.com
 DATA_DIR=/app/data
 HERMES_TOKEN=change-me-to-a-long-random-token
 HOST_PORT=3000
-LLM_PROVIDER=openai-compatible
-LLM_API_KEY=change-me
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=your-openai-compatible-model
+LLM_PROVIDER=
+LLM_BASE_URL=
+LLM_MODEL=
+LLM_API_KEY=
 LLM_MAX_CONTEXT_NOTES=6
 LOG_LEVEL=info
 TRUST_PROXY=true
+```
+
+Isi `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL`, dan `LLM_API_KEY` di `.env` hanya jika Anda ingin menyiapkan default LLM dari server sejak awal. Kalau tidak, biarkan kosong dan konfigurasi dari UI.
+
+Contoh bootstrap OpenAI-compatible lewat env:
+
+```env
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=your-openai-compatible-model
+LLM_API_KEY=change-me
+LLM_MAX_CONTEXT_NOTES=6
 ```
 
 Contoh Ollama lokal:
@@ -446,7 +460,7 @@ Untuk VPS manual, `compose.local.yaml` dipakai karena reverse proxy biasanya per
 4. Pilih source dari Git repository project ini.
 5. Pilih deployment type `Docker Compose`.
 6. Isi compose file path dengan `compose.yaml`.
-7. Tambahkan environment variables dari bagian Environment di atas.
+7. Tambahkan core environment variables dari bagian Environment di atas. Variable `LLM_*` boleh dikosongkan jika ingin mengatur provider dari dashboard setelah deploy.
 8. Tambahkan domain, lalu arahkan ke service `hermes` dengan internal port `3000`.
 9. Set health check path ke `/health` jika Dokploy meminta health check.
 10. Jalankan deploy.
@@ -499,6 +513,7 @@ Untuk deployment publik:
 - Gunakan HTTPS.
 - Jangan commit `.env`.
 - Jangan commit atau export isi volume data jika berisi API key di `settings.json`.
+- Anggap user yang bisa login dashboard juga bisa melihat API key LLM dari menu `Settings`.
 - Backup volume `hermes-data`.
 - Jangan simpan secrets penting di notes sebelum ada encryption dan access control yang lebih kuat.
 - Gunakan approval workflow sebelum menambahkan integrasi yang bisa melakukan action eksternal.

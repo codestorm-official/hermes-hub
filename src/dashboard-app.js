@@ -84,6 +84,21 @@ export function renderDashboard(config) {
       color: var(--danger);
     }
 
+    button.logout-button {
+      background: var(--danger);
+      color: #fff;
+      width: 100%;
+    }
+
+    button.icon-button {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--text);
+      flex: 0 0 44px;
+      min-height: 42px;
+      padding: 0;
+    }
+
     button:disabled {
       cursor: wait;
       opacity: 0.66;
@@ -469,6 +484,14 @@ export function renderDashboard(config) {
       line-height: 1.3;
     }
 
+    .note-actions {
+      display: flex;
+      flex: 0 0 auto;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
     .note time,
     .note .source {
       color: var(--muted);
@@ -510,6 +533,107 @@ export function renderDashboard(config) {
       font-weight: 800;
     }
 
+    .secret-field {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+    }
+
+    .toast-stack {
+      bottom: 18px;
+      display: grid;
+      gap: 10px;
+      max-width: min(420px, calc(100vw - 32px));
+      position: fixed;
+      right: 18px;
+      z-index: 20;
+    }
+
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--ok);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      color: var(--text);
+      font-weight: 800;
+      line-height: 1.45;
+      padding: 12px 14px;
+    }
+
+    .toast.warn {
+      border-left-color: var(--danger);
+    }
+
+    .modal-backdrop {
+      align-items: center;
+      background: rgba(32, 35, 31, 0.42);
+      display: flex;
+      inset: 0;
+      justify-content: center;
+      padding: 18px;
+      position: fixed;
+      z-index: 15;
+    }
+
+    .note-modal {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 24px 70px rgba(32, 38, 36, 0.2);
+      max-height: calc(100vh - 36px);
+      overflow: auto;
+      padding: 18px;
+      width: min(720px, 100%);
+    }
+
+    .modal-head {
+      align-items: start;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .detail-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .detail-item {
+      border-top: 1px solid var(--line);
+      display: grid;
+      gap: 4px;
+      padding-top: 10px;
+    }
+
+    .detail-item.full {
+      grid-column: 1 / -1;
+    }
+
+    .detail-item span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .detail-item strong,
+    .detail-item div {
+      overflow-wrap: anywhere;
+    }
+
+    .content-box {
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      line-height: 1.58;
+      padding: 12px;
+      white-space: pre-wrap;
+    }
+
     @media (max-width: 920px) {
       .app-shell {
         grid-template-columns: 1fr;
@@ -537,7 +661,8 @@ export function renderDashboard(config) {
       }
 
       .stats,
-      .two-col {
+      .two-col,
+      .detail-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -595,15 +720,14 @@ export function renderDashboard(config) {
       </div>
 
       <nav class="nav" aria-label="Main navigation">
-        <button class="nav-button" type="button" data-view="ask" aria-current="page"><span class="nav-icon">?</span><span>Ask</span></button>
-        <button class="nav-button" type="button" data-view="capture"><span class="nav-icon">+</span><span>Capture</span></button>
-        <button class="nav-button" type="button" data-view="notes"><span class="nav-icon">#</span><span>Notes</span></button>
-        <button class="nav-button" type="button" data-view="settings"><span class="nav-icon">*</span><span>Settings</span></button>
+        <button class="nav-button" type="button" data-view="ask" aria-current="page"><span class="nav-icon">💬</span><span>Ask</span></button>
+        <button class="nav-button" type="button" data-view="capture"><span class="nav-icon">✍️</span><span>Capture</span></button>
+        <button class="nav-button" type="button" data-view="notes"><span class="nav-icon">🗒️</span><span>Notes</span></button>
+        <button class="nav-button" type="button" data-view="settings"><span class="nav-icon">⚙️</span><span>Settings</span></button>
       </nav>
 
       <div class="sidebar-foot">
-        <span id="auth-state">Locked</span>
-        <button id="logout" class="ghost" type="button">Logout</button>
+        <button id="logout" class="logout-button" type="button">🚪 Logout</button>
       </div>
     </aside>
 
@@ -723,7 +847,10 @@ export function renderDashboard(config) {
               <input id="llm-base-url" name="baseUrl" placeholder="https://api.openai.com/v1">
             </label>
             <label>API key
-              <input id="llm-api-key" name="apiKey" type="password" placeholder="Leave blank to keep saved key">
+              <span class="secret-field">
+                <input id="llm-api-key" name="apiKey" type="password" placeholder="Leave blank to keep saved key">
+                <button id="toggle-api-key" class="icon-button" type="button" aria-label="Show API key" title="Show API key">👁️</button>
+              </span>
             </label>
             <label class="checkline">
               <input id="llm-clear-key" name="clearApiKey" type="checkbox">
@@ -746,6 +873,21 @@ export function renderDashboard(config) {
       </section>
     </main>
   </div>
+
+  <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <section id="note-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="note-modal-title" hidden>
+    <div class="note-modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="note-modal-title">Note Detail</h2>
+          <p id="note-modal-subtitle" class="subtitle">Full note information.</p>
+        </div>
+        <button id="close-note-modal" class="secondary" type="button">Close</button>
+      </div>
+      <div id="note-modal-body" class="detail-grid"></div>
+    </div>
+  </section>
 
   <script>
     const SESSION_KEY = 'hermesToken';
@@ -796,7 +938,7 @@ export function renderDashboard(config) {
       askForm: document.querySelector('#ask-form'),
       askNotice: document.querySelector('#ask-notice'),
       askQuestion: document.querySelector('#ask-question'),
-      authState: document.querySelector('#auth-state'),
+      closeNoteModal: document.querySelector('#close-note-modal'),
       keyStatus: document.querySelector('#key-status'),
       latestNote: document.querySelector('#latest-note'),
       llmApiKey: document.querySelector('#llm-api-key'),
@@ -817,6 +959,10 @@ export function renderDashboard(config) {
       modelSelect: document.querySelector('#model-select'),
       modelStat: document.querySelector('#model-stat'),
       navButtons: document.querySelectorAll('[data-view]'),
+      noteModal: document.querySelector('#note-modal'),
+      noteModalBody: document.querySelector('#note-modal-body'),
+      noteModalSubtitle: document.querySelector('#note-modal-subtitle'),
+      noteModalTitle: document.querySelector('#note-modal-title'),
       noteCount: document.querySelector('#note-count'),
       noteForm: document.querySelector('#note-form'),
       notes: document.querySelector('#notes'),
@@ -829,6 +975,8 @@ export function renderDashboard(config) {
       settingsForm: document.querySelector('#settings-form'),
       settingsNotice: document.querySelector('#settings-notice'),
       sources: document.querySelector('#sources'),
+      toastStack: document.querySelector('#toast-stack'),
+      toggleApiKey: document.querySelector('#toggle-api-key'),
       viewSubtitle: document.querySelector('#view-subtitle'),
       viewTitle: document.querySelector('#view-title')
     };
@@ -837,11 +985,23 @@ export function renderDashboard(config) {
     els.loginForm.addEventListener('submit', login);
     els.logout.addEventListener('click', logout);
     els.noteForm.addEventListener('submit', saveNote);
-    els.refresh.addEventListener('click', () => loadNotes());
+    els.refresh.addEventListener('click', refreshNotes);
     els.search.addEventListener('input', debounce(() => loadNotes(), 240));
     els.settingsForm.addEventListener('submit', saveSettings);
     els.loadModels.addEventListener('click', loadModels);
     els.llmProvider.addEventListener('change', updateProviderHints);
+    els.toggleApiKey.addEventListener('click', toggleApiKeyVisibility);
+    els.closeNoteModal.addEventListener('click', closeNoteModal);
+    els.noteModal.addEventListener('click', (event) => {
+      if (event.target === els.noteModal) {
+        closeNoteModal();
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !els.noteModal.hidden) {
+        closeNoteModal();
+      }
+    });
     els.modelSelect.addEventListener('change', () => {
       if (els.modelSelect.value) {
         els.llmModel.value = els.modelSelect.value;
@@ -908,10 +1068,12 @@ export function renderDashboard(config) {
         els.loginToken.value = '';
         showApp();
         await refreshApp(await api('/api/info'));
+        showToast('Login berhasil.');
       } catch (error) {
         state.token = '';
         clearSessionToken();
         showLoginError(error.message || 'Login failed.');
+        showToast(error.message || 'Login gagal.', true);
       } finally {
         els.loginButton.disabled = false;
       }
@@ -926,10 +1088,12 @@ export function renderDashboard(config) {
 
       if (state.authRequired) {
         showLogin();
+        showToast('Logout berhasil.');
         return;
       }
 
       boot();
+      showToast('Logout berhasil.');
     }
 
     function showLogin() {
@@ -941,7 +1105,6 @@ export function renderDashboard(config) {
     function showApp() {
       els.loginScreen.hidden = true;
       els.app.hidden = false;
-      els.authState.textContent = state.authRequired ? 'Unlocked' : 'Open';
       setView(state.view);
     }
 
@@ -976,8 +1139,10 @@ export function renderDashboard(config) {
         fillSettingsForm(response.llm || {});
         renderLlmStatus(response.llm || {});
         showSettingsNotice('Settings saved.', false);
+        showToast('Settings berhasil disimpan.');
       } catch (error) {
         showSettingsNotice(error.message, true);
+        showToast(error.message, true);
       } finally {
         els.saveSettings.disabled = false;
       }
@@ -1002,6 +1167,7 @@ export function renderDashboard(config) {
 
         if (!models.length) {
           showSettingsNotice('No models returned by provider.', true);
+          showToast('Provider tidak mengembalikan model.', true);
           return;
         }
 
@@ -1010,10 +1176,27 @@ export function renderDashboard(config) {
           models.map((model) => '<option value="' + escapeHtml(model) + '">' + escapeHtml(model) + '</option>').join('');
         els.modelSelect.hidden = false;
         showSettingsNotice(models.length + ' models loaded.', false);
+        showToast(models.length + ' models berhasil dimuat.');
       } catch (error) {
         showSettingsNotice(error.message, true);
+        showToast(error.message, true);
       } finally {
         els.loadModels.disabled = false;
+      }
+    }
+
+    async function refreshNotes() {
+      els.refresh.disabled = true;
+
+      try {
+        await loadNotes();
+        showNotice('Notes refreshed.', false);
+        showToast('Notes berhasil direfresh.');
+      } catch (error) {
+        showNotice(error.message, true);
+        showToast(error.message, true);
+      } finally {
+        els.refresh.disabled = false;
       }
     }
 
@@ -1046,10 +1229,12 @@ export function renderDashboard(config) {
         });
         els.noteForm.reset();
         showNotice('Note saved.', false);
+        showToast('Note berhasil disimpan.');
         await loadNotes();
         setView('notes');
       } catch (error) {
         showNotice(error.message, true);
+        showToast(error.message, true);
       } finally {
         els.saveNote.disabled = false;
       }
@@ -1062,11 +1247,13 @@ export function renderDashboard(config) {
 
       if (!question) {
         showAskNotice('Question is required.', true);
+        showToast('Question is required.', true);
         return;
       }
 
       if (!state.llmConfigured) {
         showAskNotice('LLM is not configured yet.', true);
+        showToast('LLM belum dikonfigurasi.', true);
         setView('settings');
         return;
       }
@@ -1085,9 +1272,11 @@ export function renderDashboard(config) {
         els.askNotice.hidden = true;
         els.answer.textContent = response.answer || 'No answer returned.';
         renderSources(response.sources || []);
+        showToast('Jawaban sudah siap.');
       } catch (error) {
         els.answer.hidden = true;
         showAskNotice(error.message, true);
+        showToast(error.message, true);
       } finally {
         els.askButton.disabled = false;
       }
@@ -1096,6 +1285,7 @@ export function renderDashboard(config) {
     async function deleteNote(id) {
       await api('/api/notes/' + encodeURIComponent(id), { method: 'DELETE' });
       showNotice('Note deleted.', false);
+      showToast('Note berhasil dihapus.');
       await loadNotes();
     }
 
@@ -1146,6 +1336,7 @@ export function renderDashboard(config) {
     function fillSettingsForm(llm) {
       els.llmProvider.value = llm.provider || '';
       els.llmBaseUrl.value = llm.baseUrl || '';
+      els.llmApiKey.value = llm.apiKey || '';
       els.llmModel.value = llm.model || '';
       els.llmMaxContext.value = llm.maxContextNotes || 6;
       els.keyStatus.textContent = llm.hasApiKey ? 'API key saved on server.' : 'No API key saved.';
@@ -1202,21 +1393,72 @@ export function renderDashboard(config) {
           '<div class="note-head">' +
             '<div>' +
               '<h3>' + escapeHtml(note.title) + '</h3>' +
-              '<time datetime="' + escapeHtml(note.createdAt) + '">' + formatDate(note.createdAt) + '</time>' +
-              (note.source ? '<span class="source">' + escapeHtml(note.source) + '</span>' : '') +
+              (tags.length ? '<div class="tags">' + tags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + '</div>' : '<p class="muted">No tags</p>') +
             '</div>' +
-            '<button type="button" class="danger" data-delete="' + escapeHtml(note.id) + '">Delete</button>' +
+            '<div class="note-actions">' +
+              '<button type="button" class="secondary" data-view-note="' + escapeHtml(note.id) + '">View</button>' +
+              '<button type="button" class="danger" data-delete="' + escapeHtml(note.id) + '">Delete</button>' +
+            '</div>' +
           '</div>' +
-          (note.content ? '<p>' + escapeHtml(note.content) + '</p>' : '') +
-          (tags.length ? '<div class="tags">' + tags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + '</div>' : '') +
         '</article>';
       }).join('');
 
+      els.notes.querySelectorAll('[data-view-note]').forEach((button) => {
+        button.addEventListener('click', () => openNoteModal(button.dataset.viewNote));
+      });
+
       els.notes.querySelectorAll('[data-delete]').forEach((button) => {
         button.addEventListener('click', () => {
-          deleteNote(button.dataset.delete).catch((error) => showNotice(error.message, true));
+          deleteNote(button.dataset.delete).catch((error) => {
+            showNotice(error.message, true);
+            showToast(error.message, true);
+          });
         });
       });
+    }
+
+    function openNoteModal(id) {
+      const note = state.notes.find((item) => item.id === id);
+
+      if (!note) {
+        showToast('Note tidak ditemukan.', true);
+        return;
+      }
+
+      const tags = Array.isArray(note.tags) ? note.tags : [];
+      els.noteModalTitle.textContent = note.title || 'Untitled note';
+      els.noteModalSubtitle.textContent = note.source || 'Full note information.';
+      els.noteModalBody.innerHTML =
+        '<div class="detail-item">' +
+          '<span>ID</span>' +
+          '<strong>' + escapeHtml(note.id) + '</strong>' +
+        '</div>' +
+        '<div class="detail-item">' +
+          '<span>Source</span>' +
+          '<strong>' + escapeHtml(note.source || '-') + '</strong>' +
+        '</div>' +
+        '<div class="detail-item">' +
+          '<span>Created</span>' +
+          '<strong>' + escapeHtml(formatDate(note.createdAt)) + '</strong>' +
+        '</div>' +
+        '<div class="detail-item">' +
+          '<span>Updated</span>' +
+          '<strong>' + escapeHtml(formatDate(note.updatedAt)) + '</strong>' +
+        '</div>' +
+        '<div class="detail-item full">' +
+          '<span>Tags</span>' +
+          '<div class="tags">' + (tags.length ? tags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') : '<span class="muted">No tags</span>') + '</div>' +
+        '</div>' +
+        '<div class="detail-item full">' +
+          '<span>Content</span>' +
+          '<div class="content-box">' + escapeHtml(note.content || '-') + '</div>' +
+        '</div>';
+      els.noteModal.hidden = false;
+    }
+
+    function closeNoteModal() {
+      els.noteModal.hidden = true;
+      els.noteModalBody.innerHTML = '';
     }
 
     function showNotice(message, isError) {
@@ -1249,6 +1491,25 @@ export function renderDashboard(config) {
     function showLoginError(message) {
       els.loginError.textContent = message;
       els.loginError.hidden = false;
+    }
+
+    function toggleApiKeyVisibility() {
+      const isHidden = els.llmApiKey.type === 'password';
+      els.llmApiKey.type = isHidden ? 'text' : 'password';
+      els.toggleApiKey.textContent = isHidden ? '🔒' : '👁️';
+      els.toggleApiKey.setAttribute('aria-label', isHidden ? 'Hide API key' : 'Show API key');
+      els.toggleApiKey.setAttribute('title', isHidden ? 'Hide API key' : 'Show API key');
+    }
+
+    function showToast(message, isError = false) {
+      const toast = document.createElement('div');
+      toast.className = 'toast' + (isError ? ' warn' : '');
+      toast.textContent = message;
+      els.toastStack.append(toast);
+
+      setTimeout(() => {
+        toast.remove();
+      }, 3200);
     }
 
     function formatDate(value) {
