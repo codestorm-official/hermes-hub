@@ -1801,9 +1801,7 @@ export function renderDashboard(config) {
       els.notice.classList.toggle('ok', !isError);
 
       if (!isError) {
-        setTimeout(() => {
-          els.notice.hidden = true;
-        }, 2400);
+        autoHideNotice(els.notice);
       }
     }
 
@@ -1819,6 +1817,10 @@ export function renderDashboard(config) {
       els.settingsNotice.hidden = false;
       els.settingsNotice.classList.toggle('warn', Boolean(isError));
       els.settingsNotice.classList.toggle('ok', !isError);
+
+      if (!isError) {
+        autoHideNotice(els.settingsNotice);
+      }
     }
 
     function showTelegramNotice(message, isError) {
@@ -1826,6 +1828,16 @@ export function renderDashboard(config) {
       els.telegramNotice.hidden = false;
       els.telegramNotice.classList.toggle('warn', Boolean(isError));
       els.telegramNotice.classList.toggle('ok', !isError);
+
+      if (!isError) {
+        autoHideNotice(els.telegramNotice);
+      }
+    }
+
+    function autoHideNotice(element) {
+      setTimeout(() => {
+        element.hidden = true;
+      }, 2400);
     }
 
     function showLoginError(message) {
@@ -1833,20 +1845,68 @@ export function renderDashboard(config) {
       els.loginError.hidden = false;
     }
 
-    function toggleApiKeyVisibility() {
-      const isHidden = els.llmApiKey.type === 'password';
-      els.llmApiKey.type = isHidden ? 'text' : 'password';
-      els.toggleApiKey.innerHTML = isHidden ? '&#128274;' : '&#128065;&#65039;';
-      els.toggleApiKey.setAttribute('aria-label', isHidden ? 'Hide API key' : 'Show API key');
-      els.toggleApiKey.setAttribute('title', isHidden ? 'Hide API key' : 'Show API key');
+    async function toggleApiKeyVisibility() {
+      await toggleSecretVisibility(els.llmApiKey, els.toggleApiKey, 'API key');
     }
 
-    function toggleTelegramTokenVisibility() {
-      const isHidden = els.telegramBotToken.type === 'password';
-      els.telegramBotToken.type = isHidden ? 'text' : 'password';
-      els.toggleTelegramToken.innerHTML = isHidden ? '&#128274;' : '&#128065;&#65039;';
-      els.toggleTelegramToken.setAttribute('aria-label', isHidden ? 'Hide Telegram token' : 'Show Telegram token');
-      els.toggleTelegramToken.setAttribute('title', isHidden ? 'Hide Telegram token' : 'Show Telegram token');
+    async function toggleTelegramTokenVisibility() {
+      await toggleSecretVisibility(els.telegramBotToken, els.toggleTelegramToken, 'Telegram token');
+    }
+
+    async function toggleSecretVisibility(input, button, label) {
+      const isHidden = input.type === 'password';
+
+      if (!isHidden) {
+        setSecretVisibility(input, button, label, false);
+        return;
+      }
+
+      const canReveal = await verifyRevealToken(label);
+
+      if (canReveal) {
+        setSecretVisibility(input, button, label, true);
+      }
+    }
+
+    function setSecretVisibility(input, button, label, isVisible) {
+      input.type = isVisible ? 'text' : 'password';
+      button.innerHTML = isVisible ? '&#128274;' : '&#128065;&#65039;';
+      button.setAttribute('aria-label', isVisible ? 'Hide ' + label : 'Show ' + label);
+      button.setAttribute('title', isVisible ? 'Hide ' + label : 'Show ' + label);
+    }
+
+    async function verifyRevealToken(label) {
+      if (!state.authRequired) {
+        return true;
+      }
+
+      const token = window.prompt('Enter Hermes token to reveal ' + label + ':');
+
+      if (token === null) {
+        return false;
+      }
+
+      const cleanToken = token.trim();
+
+      if (!cleanToken) {
+        showToast('Hermes token is required to reveal secrets.', true);
+        return false;
+      }
+
+      try {
+        await api('/api/session', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + cleanToken
+          },
+          body: JSON.stringify({})
+        }, { allowNoToken: true });
+        showToast(label + ' revealed.');
+        return true;
+      } catch (error) {
+        showToast(error.message || 'Invalid Hermes token.', true);
+        return false;
+      }
     }
 
     function showToast(message, isError = false) {
