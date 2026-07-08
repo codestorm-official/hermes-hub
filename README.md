@@ -1,6 +1,6 @@
 # Hermes Hub
 
-Hermes Hub adalah lightweight personal AI hub dan second-brain starter service. Project ini menyediakan dashboard kecil untuk capture notes, search notes, health check, dan fondasi awal untuk integrasi berikutnya seperti Telegram capture, local agent, browser workflow, approval queue, dan AI retrieval.
+Hermes Hub adalah lightweight second-brain starter service dan AI-ready personal hub. Project ini menyediakan dashboard kecil untuk capture notes, search notes, health check, dan fondasi awal untuk integrasi berikutnya seperti Telegram capture, local agent, browser workflow, approval queue, dan AI retrieval.
 
 Project ini sengaja dibuat sederhana:
 
@@ -14,6 +14,7 @@ Project ini sengaja dibuat sederhana:
 ## Fitur
 
 - **Dashboard** di `/` untuk capture, search, dan delete notes.
+- **Ask Notes / basic RAG** untuk bertanya ke notes memakai LLM yang dikonfigurasi.
 - **Notes API** untuk integrasi programmatic.
 - **Health endpoints** untuk deployment checks.
 - **Token guard** dengan `HERMES_TOKEN` untuk notes dashboard dan API.
@@ -23,7 +24,44 @@ Project ini sengaja dibuat sederhana:
 
 Versi saat ini adalah MVP. Fitur notes adalah fondasi pertama, bukan tujuan akhir. Hermes Hub ditujukan sebagai control plane pribadi untuk capture, memory, audit log, approval workflow, Telegram capture, local agent, dan integrasi AI/browser yang lebih aman.
 
-Hermes Hub saat ini belum menjadi full AI agent, Telegram bot, Obsidian sync engine, atau browser controller, tetapi fondasi deployment dan data sudah siap untuk dikembangkan ke arah itu.
+Hermes Hub mendukung LLM opsional untuk fitur Ask Notes. Jika LLM belum dikonfigurasi, dashboard dan notes tetap berjalan, tetapi fitur Ask akan menampilkan status bahwa LLM belum siap.
+
+Hermes Hub saat ini belum menjadi full AI agent, Telegram bot, Obsidian sync engine, atau browser controller. Fondasi deployment, data, dan basic RAG sudah siap untuk dikembangkan ke arah itu.
+
+## Status AI / LLM
+
+LLM bersifat opsional dan dikonfigurasi lewat environment variables. Tidak ada API key yang dimasukkan dari UI.
+
+Yang sudah ada:
+
+- dashboard;
+- notes API;
+- Ask Notes / basic RAG;
+- token guard;
+- persistent notes storage;
+- health check;
+- Docker/Dokploy deployment.
+
+Yang belum ada:
+
+- Telegram bot token/input;
+- Telegram capture;
+- embedding/vector search;
+- agent tools;
+- browser automation.
+
+Dengan kata lain, Hermes Hub sekarang punya **basic RAG**: pertanyaan user dicocokkan ke notes dengan keyword scoring, notes relevan dikirim sebagai konteks ke LLM, lalu LLM menjawab berdasarkan konteks tersebut. Semantic RAG dengan embeddings/vector search belum tersedia.
+
+Provider LLM yang didukung:
+
+| Option | Cocok Untuk | Env yang Dibutuhkan |
+| --- | --- | --- |
+| OpenAI-compatible API | Deploy VPS/Dokploy dengan model cloud. | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` |
+| Anthropic-compatible API | Provider seperti Anthropic native atau gateway yang expose `/messages`. | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` |
+| Ollama/local model | Data lebih privat, model berjalan di mesin sendiri. | `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL` |
+| No LLM | Notes/search/dashboard saja. | Tidak perlu API key. |
+
+Untuk Ollama, gunakan `LLM_PROVIDER=ollama`, `LLM_BASE_URL`, dan `LLM_MODEL`. `LLM_API_KEY` biasanya kosong kecuali Ollama dipasang di balik proxy yang membutuhkan bearer token.
 
 ## Arsitektur
 
@@ -115,6 +153,7 @@ Dashboard `/` sekarang bisa dipakai untuk:
 - menyimpan note cepat;
 - mencari note berdasarkan title, content, tags, atau source;
 - menghapus note;
+- bertanya ke notes lewat panel `Ask Notes` jika LLM sudah dikonfigurasi;
 - melihat jumlah note dan update terakhir.
 
 Jika `HERMES_TOKEN` diset di environment server, dashboard akan meminta access token sebelum notes bisa dibaca atau ditulis. Token ini tidak otomatis diketahui browser, karena `.env` hanya dibaca di sisi server. Browser perlu mengirim token sebagai `Authorization: Bearer ...` agar API tahu request tersebut boleh mengakses notes.
@@ -129,8 +168,17 @@ Flow penggunaan harian:
 4. Tambahkan tag seperti `idea`, `project`, atau `dokploy`.
 5. Klik `Save Note`.
 6. Cari note dari panel `Notes`.
+7. Jika LLM sudah dikonfigurasi, tanya dari panel `Ask Notes`.
 
 Data notes disimpan di `/app/data/notes.json` di dalam container dan dipersist lewat Docker volume `hermes-data`.
+
+Cara kerja `Ask Notes`:
+
+1. User mengirim pertanyaan.
+2. Hermes mencari notes yang paling relevan dengan keyword scoring.
+3. Hermes mengirim pertanyaan dan notes relevan ke LLM.
+4. LLM menjawab hanya berdasarkan konteks notes.
+5. Dashboard menampilkan jawaban dan source note yang dipakai.
 
 ## API Notes
 
@@ -164,6 +212,15 @@ curl -X DELETE https://hermes.example.com/api/notes/NOTE_ID \
   -H "Authorization: Bearer YOUR_HERMES_TOKEN"
 ```
 
+Ask notes:
+
+```sh
+curl -X POST https://hermes.example.com/api/ask \
+  -H "Authorization: Bearer YOUR_HERMES_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Apa catatan saya tentang deploy Dokploy?"}'
+```
+
 ## Endpoint
 
 - `/` - dashboard Hermes Hub
@@ -172,6 +229,7 @@ curl -X DELETE https://hermes.example.com/api/notes/NOTE_ID \
 - `/api/info` - metadata runtime
 - `/api/notes` - list dan create notes
 - `/api/notes/:id` - delete note
+- `/api/ask` - basic RAG over notes using configured LLM
 
 ## Environment
 
@@ -184,6 +242,11 @@ Gunakan `.env.example` sebagai template. Untuk Docker lokal atau VPS manual, bua
 | `DATA_DIR` | `/app/data` | Lokasi file data notes di container. |
 | `HERMES_TOKEN` | kosong | Token untuk mengunci API notes dan dashboard notes. Wajib diset untuk deploy publik. |
 | `HOST_PORT` | `3000` | Port host untuk Docker Compose lokal lewat `compose.local.yaml`. Tidak perlu diset untuk Dokploy. |
+| `LLM_PROVIDER` | kosong | Provider LLM: `openai-compatible`, `anthropic`, atau `ollama`. Kosong berarti fitur Ask Notes nonaktif. |
+| `LLM_API_KEY` | kosong | API key LLM. Kosong untuk Ollama lokal tanpa auth. |
+| `LLM_BASE_URL` | kosong | Base URL provider, misalnya `https://api.openai.com/v1`, `https://api.anthropic.com/v1`, `https://ollama.com/api`, atau `http://ollama:11434/api`. |
+| `LLM_MODEL` | kosong | Nama model yang tersedia di provider, misalnya `your-openai-compatible-model`, `your-claude-model`, atau `llama3.1`. |
+| `LLM_MAX_CONTEXT_NOTES` | `6` | Jumlah maksimal notes yang dikirim sebagai konteks ke LLM. |
 | `LOG_LEVEL` | `info` | Disiapkan untuk konfigurasi logging berikutnya. |
 | `TRUST_PROXY` | `true` | Aktifkan pembacaan `X-Forwarded-For`, cocok saat di belakang proxy Dokploy. |
 
@@ -195,9 +258,63 @@ APP_URL=https://hermes.example.com
 DATA_DIR=/app/data
 HERMES_TOKEN=change-me-to-a-long-random-token
 HOST_PORT=3000
+LLM_PROVIDER=openai-compatible
+LLM_API_KEY=change-me
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=your-openai-compatible-model
+LLM_MAX_CONTEXT_NOTES=6
 LOG_LEVEL=info
 TRUST_PROXY=true
 ```
+
+Contoh Ollama lokal:
+
+```env
+LLM_PROVIDER=ollama
+LLM_BASE_URL=http://host.docker.internal:11434/api
+LLM_MODEL=llama3.1
+LLM_API_KEY=
+```
+
+Contoh Ollama cloud dengan API key dari `https://ollama.com/settings/keys`:
+
+```env
+LLM_PROVIDER=ollama
+LLM_BASE_URL=https://ollama.com/api
+LLM_MODEL=gpt-oss:120b
+LLM_API_KEY=your-ollama-api-key
+```
+
+Contoh Anthropic native:
+
+```env
+LLM_PROVIDER=anthropic
+LLM_BASE_URL=https://api.anthropic.com/v1
+LLM_MODEL=your-claude-model
+LLM_API_KEY=change-me
+```
+
+Contoh Aerolink Anthropic-compatible:
+
+```env
+LLM_PROVIDER=anthropic
+LLM_BASE_URL=https://api.aerolink.example/v1
+LLM_MODEL=your-aerolink-model
+LLM_API_KEY=your-aerolink-key
+```
+
+Untuk provider Anthropic-compatible, jangan masukkan `/messages` di `LLM_BASE_URL`. Hermes akan memanggil `${LLM_BASE_URL}/messages` secara otomatis.
+
+Jika Aerolink yang dipakai ternyata OpenAI-compatible, gunakan:
+
+```env
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=https://api.aerolink.example/v1
+LLM_MODEL=your-aerolink-model
+LLM_API_KEY=your-aerolink-key
+```
+
+Untuk OpenAI-compatible provider, jangan masukkan `/chat/completions` di `LLM_BASE_URL`. Hermes akan memanggil `${LLM_BASE_URL}/chat/completions` secara otomatis.
 
 ## Deploy Lokal dengan Node.js
 
@@ -428,11 +545,12 @@ Urutan pengembangan yang disarankan:
 1. **Audit log** - catat create/delete note, token usage, error, dan action penting.
 2. **SQLite storage** - pindahkan storage dari JSON ke SQLite untuk query dan durability yang lebih baik.
 3. **Full-text search** - tambah pencarian yang lebih kuat untuk content dan tags.
-4. **Telegram capture** - simpan note/link dari Telegram dengan allowlist user.
-5. **Approval center** - action pending, approve/reject, dan audit trail.
-6. **Local agent** - koneksi privat ke komputer lokal untuk vault/browser sensitif.
-7. **AI/RAG** - jawaban berbasis notes pribadi dengan proteksi note sensitif.
-8. **Browser control terbatas** - draft reply dulu, eksekusi hanya setelah approval.
+4. **LLM config** - tambah provider config seperti `LLM_API_KEY`, `LLM_MODEL`, dan `LLM_BASE_URL`.
+5. **Ask notes / RAG** - jawaban berbasis notes pribadi dengan proteksi note sensitif.
+6. **Telegram capture** - simpan note/link dari Telegram dengan allowlist user.
+7. **Approval center** - action pending, approve/reject, dan audit trail.
+8. **Local agent** - koneksi privat ke komputer lokal untuk vault/browser sensitif.
+9. **Browser control terbatas** - draft reply dulu, eksekusi hanya setelah approval.
 
 ## Struktur Project
 

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { answerFromNotes, resolveLlmConfig } from '../src/llm.js';
 import { createHermesServer, resolveConfig } from '../src/server.js';
 
 test('resolveConfig applies defaults and parses booleans', () => {
@@ -103,6 +104,127 @@ test('notes api creates, searches, and deletes notes', async (t) => {
   assert.equal(deleted.status, 204);
   assert.equal(listAfterDeleteBody.notes.length, 0);
   assert.equal(listAfterDeleteBody.stats.noteCount, 0);
+});
+
+test('ask endpoint reports missing llm configuration', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const { baseUrl, close } = await startServer({ dataDir });
+  t.after(close);
+
+  const response = await fetch(`${baseUrl}/api/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ question: 'What do my notes say about Dokploy?' })
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.error, 'llm_not_configured');
+});
+
+test('answerFromNotes sends matching notes to an openai-compatible llm', async () => {
+  const config = resolveLlmConfig({
+    LLM_PROVIDER: 'openai-compatible',
+    LLM_API_KEY: 'test-key',
+    LLM_BASE_URL: 'https://llm.example.com/v1',
+    LLM_MODEL: 'test-model'
+  });
+  const calls = [];
+  const answer = await answerFromNotes({
+    question: 'How is Dokploy routed?',
+    config,
+    notes: [
+      {
+        id: 'note-1',
+        title: 'Dokploy route',
+        content: 'Route the domain to service hermes on internal port 3000.',
+        tags: ['deploy'],
+        source: 'manual',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      },
+      {
+        id: 'note-2',
+        title: 'Shopping list',
+        content: 'Buy coffee.',
+        tags: [],
+        source: '',
+        updatedAt: '2026-01-02T00:00:00.000Z'
+      }
+    ],
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: 'Dokploy should route the domain to hermes on internal port 3000.'
+            }
+          }
+        ]
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://llm.example.com/v1/chat/completions');
+  assert.match(calls[0].options.body, /Dokploy route/);
+  assert.equal(answer.answer, 'Dokploy should route the domain to hermes on internal port 3000.');
+  assert.deepEqual(answer.sources, [
+    {
+      id: 'note-1',
+      title: 'Dokploy route',
+      source: 'manual',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    }
+  ]);
+});
+
+test('answerFromNotes supports ollama cloud base url', async () => {
+  const config = resolveLlmConfig({
+    LLM_PROVIDER: 'ollama',
+    LLM_API_KEY: 'ollama-key',
+    LLM_BASE_URL: 'https://ollama.com/api',
+    LLM_MODEL: 'gpt-oss:120b'
+  });
+  const calls = [];
+  const answer = await answerFromNotes({
+    question: 'What is Hermes?',
+    config,
+    notes: [
+      {
+        id: 'note-1',
+        title: 'Hermes',
+        content: 'Hermes is a personal second brain hub.',
+        tags: ['hermes'],
+        source: '',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      }
+    ],
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+
+      return new Response(JSON.stringify({
+        message: {
+          content: 'Hermes is a personal second brain hub.'
+        }
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://ollama.com/api/chat');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer ollama-key');
+  assert.equal(answer.answer, 'Hermes is a personal second brain hub.');
 });
 
 test('unsupported routes and methods are explicit', async (t) => {

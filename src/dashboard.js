@@ -216,6 +216,10 @@ export function renderDashboard(config) {
       grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
     }
 
+    .ask-panel {
+      grid-column: 1 / -1;
+    }
+
     .panel {
       padding: 18px;
     }
@@ -245,6 +249,13 @@ export function renderDashboard(config) {
       margin-bottom: 14px;
     }
 
+    .askbar {
+      align-items: end;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
     .tokenbar {
       align-items: end;
       display: grid;
@@ -268,6 +279,32 @@ export function renderDashboard(config) {
     .notes {
       display: grid;
       gap: 12px;
+    }
+
+    .answer {
+      background: color-mix(in srgb, var(--accent) 7%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+      border-radius: 8px;
+      line-height: 1.6;
+      margin-top: 14px;
+      padding: 14px;
+      white-space: pre-wrap;
+    }
+
+    .sources {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .source-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 800;
+      padding: 5px 10px;
     }
 
     .note {
@@ -342,6 +379,7 @@ export function renderDashboard(config) {
         grid-template-columns: 1fr;
       }
 
+      .askbar,
       .toolbar,
       .tokenbar {
         grid-template-columns: 1fr;
@@ -393,6 +431,19 @@ export function renderDashboard(config) {
     </header>
 
     <main>
+      <section class="panel ask-panel" aria-labelledby="ask-title">
+        <h2 id="ask-title">Ask Notes</h2>
+        <div id="llm-message" class="message warn" hidden></div>
+        <form id="ask-form" class="askbar" autocomplete="off">
+          <label>Question
+            <input id="ask-question" name="question" placeholder="Ask something from your saved notes">
+          </label>
+          <button id="ask-button" type="submit">Ask</button>
+        </form>
+        <div id="answer" class="answer" hidden></div>
+        <div id="sources" class="sources" hidden></div>
+      </section>
+
       <section class="panel" aria-labelledby="capture-title">
         <h2 id="capture-title">Capture</h2>
         <div id="auth-message" class="message warn" hidden>Enter your Hermes token to use notes.</div>
@@ -440,14 +491,20 @@ export function renderDashboard(config) {
   <script>
     const state = {
       authRequired: false,
+      llmConfigured: false,
       token: '',
       notes: []
     };
 
     const els = {
+      answer: document.querySelector('#answer'),
+      askButton: document.querySelector('#ask-button'),
+      askForm: document.querySelector('#ask-form'),
+      askQuestion: document.querySelector('#ask-question'),
       authMessage: document.querySelector('#auth-message'),
       clearToken: document.querySelector('#clear-token'),
       latestNote: document.querySelector('#latest-note'),
+      llmMessage: document.querySelector('#llm-message'),
       noteCount: document.querySelector('#note-count'),
       noteForm: document.querySelector('#note-form'),
       notes: document.querySelector('#notes'),
@@ -456,10 +513,12 @@ export function renderDashboard(config) {
       saveNote: document.querySelector('#save-note'),
       search: document.querySelector('#search'),
       serviceStatus: document.querySelector('#service-status'),
+      sources: document.querySelector('#sources'),
       tokenForm: document.querySelector('#token-form'),
       tokenInput: document.querySelector('#token-input')
     };
 
+    els.askForm.addEventListener('submit', askNotes);
     els.noteForm.addEventListener('submit', saveNote);
     els.refresh.addEventListener('click', () => loadNotes());
     els.search.addEventListener('input', debounce(() => loadNotes(), 240));
@@ -472,8 +531,10 @@ export function renderDashboard(config) {
       try {
         const info = await api('/api/info');
         state.authRequired = info.notesAuthRequired;
+        state.llmConfigured = Boolean(info.llm?.configured);
         els.tokenForm.hidden = !state.authRequired;
         els.authMessage.hidden = !(state.authRequired && !state.token);
+        renderLlmStatus(info.llm);
         await loadNotes();
       } catch (error) {
         els.serviceStatus.textContent = 'Offline';
@@ -522,6 +583,48 @@ export function renderDashboard(config) {
       }
     }
 
+    async function askNotes(event) {
+      event.preventDefault();
+
+      const question = els.askQuestion.value.trim();
+
+      if (!question) {
+        showNotice('Question is required.', true);
+        return;
+      }
+
+      if (state.authRequired && !state.token) {
+        showNotice('Unlock with your Hermes token first.', true);
+        return;
+      }
+
+      if (!state.llmConfigured) {
+        showNotice('LLM is not configured on the server.', true);
+        return;
+      }
+
+      els.askButton.disabled = true;
+      els.answer.hidden = false;
+      els.answer.textContent = 'Thinking...';
+      els.sources.hidden = true;
+      els.sources.innerHTML = '';
+
+      try {
+        const response = await api('/api/ask', {
+          method: 'POST',
+          body: JSON.stringify({ question })
+        });
+
+        els.answer.textContent = response.answer || 'No answer returned.';
+        renderSources(response.sources || []);
+      } catch (error) {
+        els.answer.hidden = true;
+        showNotice(error.message, true);
+      } finally {
+        els.askButton.disabled = false;
+      }
+    }
+
     async function deleteNote(id) {
       await api('/api/notes/' + encodeURIComponent(id), { method: 'DELETE' });
       showNotice('Note deleted.');
@@ -540,6 +643,34 @@ export function renderDashboard(config) {
       els.tokenInput.value = '';
       els.authMessage.hidden = state.authRequired ? false : true;
       renderNotes([]);
+    }
+
+    function renderLlmStatus(llm) {
+      if (llm?.configured) {
+        els.llmMessage.hidden = false;
+        els.llmMessage.classList.remove('warn');
+        els.llmMessage.textContent = 'LLM ready: ' + llm.provider + ' / ' + llm.model;
+        els.askButton.disabled = false;
+        return;
+      }
+
+      els.llmMessage.hidden = false;
+      els.llmMessage.classList.add('warn');
+      els.llmMessage.textContent = 'LLM is not configured. Set LLM_PROVIDER, LLM_BASE_URL, LLM_MODEL, and LLM_API_KEY when needed.';
+      els.askButton.disabled = true;
+    }
+
+    function renderSources(sources) {
+      if (!sources.length) {
+        els.sources.hidden = true;
+        els.sources.innerHTML = '';
+        return;
+      }
+
+      els.sources.hidden = false;
+      els.sources.innerHTML = sources
+        .map((source) => '<span class="source-pill">' + escapeHtml(source.title || source.id) + '</span>')
+        .join('');
     }
 
     async function api(path, options = {}) {

@@ -9,6 +9,11 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       DATA_DIR: /app/data
       HERMES_TOKEN: ${HERMES_TOKEN:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MAX_CONTEXT_NOTES: ${LLM_MAX_CONTEXT_NOTES:-6}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       NODE_ENV: production
       PORT: 3000

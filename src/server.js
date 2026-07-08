@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 import { renderDashboard } from './dashboard.js';
+import { answerFromNotes, isLlmConfigured, resolveLlmConfig } from './llm.js';
 import { createNoteStore } from './storage.js';
 
 const DEFAULT_PORT = 3000;
@@ -13,6 +14,7 @@ export function resolveConfig(env = process.env) {
     appUrl: env.APP_URL || `http://localhost:${env.PORT || DEFAULT_PORT}`,
     authToken: env.HERMES_TOKEN || '',
     dataDir: env.DATA_DIR || 'data',
+    llm: resolveLlmConfig(env),
     logLevel: env.LOG_LEVEL || 'info',
     nodeEnv: env.NODE_ENV || 'development',
     port: parsePort(env.PORT),
@@ -65,6 +67,10 @@ async function routeRequest(request, response, config, store) {
 
     if (url.pathname.startsWith('/api/notes/')) {
       return handleNotesItem(request, response, method, url, config, store);
+    }
+
+    if (url.pathname === '/api/ask') {
+      return handleAsk(request, response, method, config, store);
     }
 
     if (url.pathname === '/favicon.ico') {
@@ -162,6 +168,11 @@ async function infoPayload(config, request, store) {
     service: config.appName,
     environment: config.nodeEnv,
     url: config.appUrl,
+    llm: {
+      configured: isLlmConfigured(config.llm),
+      provider: config.llm.provider || null,
+      model: config.llm.model || null
+    },
     notesAuthRequired: Boolean(config.authToken),
     stats,
     clientIp: getClientIp(config, request)
@@ -221,6 +232,26 @@ async function handleNotesItem(request, response, method, url, config, store) {
 
   response.statusCode = 204;
   return response.end();
+}
+
+async function handleAsk(request, response, method, config, store) {
+  if (!allowsMethod(method, ['POST'])) {
+    return methodNotAllowed(response, ['POST'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const payload = await readRequestJson(request);
+  const notes = await store.listNotes();
+  const answer = await answerFromNotes({
+    question: payload.question,
+    notes,
+    config: config.llm
+  });
+
+  return sendJson(response, 200, answer, method);
 }
 
 function isAuthorized(config, request) {
