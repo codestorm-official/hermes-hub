@@ -367,6 +367,11 @@ export function renderDashboard(config) {
       gap: 16px;
     }
 
+    .settings-grid {
+      align-items: start;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+    }
+
     .view[hidden],
     .login-screen[hidden],
     .app-shell[hidden],
@@ -701,6 +706,7 @@ export function renderDashboard(config) {
       }
 
       .stats,
+      .settings-grid,
       .two-col,
       .detail-grid {
         grid-template-columns: 1fr;
@@ -914,7 +920,7 @@ export function renderDashboard(config) {
         </div>
       </section>
 
-      <section id="view-settings" class="view" hidden>
+      <section id="view-settings" class="view settings-grid" hidden>
         <div class="panel">
           <div class="panel-head">
             <div>
@@ -960,7 +966,7 @@ export function renderDashboard(config) {
             </div>
             <select id="model-select" hidden aria-label="Loaded models"></select>
             <div class="action-row">
-              <button id="save-settings" type="submit">Save Settings</button>
+              <button id="save-settings" type="submit">Save</button>
             </div>
           </form>
         </div>
@@ -982,7 +988,7 @@ export function renderDashboard(config) {
             <div class="key-status" id="telegram-status">No Telegram bot connected.</div>
             <div class="action-row">
               <button id="test-telegram" type="button" class="secondary">Test Connection</button>
-              <button id="save-telegram" type="submit">Save Bot</button>
+              <button id="save-telegram" type="submit">Save</button>
             </div>
           </form>
         </div>
