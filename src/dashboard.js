@@ -400,7 +400,7 @@ export function renderDashboard(config) {
           <label>Access token
             <input id="token-input" name="token" type="password" placeholder="HERMES_TOKEN">
           </label>
-          <button type="submit">Save</button>
+          <button type="submit">Unlock</button>
           <button type="button" class="secondary" id="clear-token">Clear</button>
         </form>
         <form id="note-form" autocomplete="off">
@@ -440,7 +440,7 @@ export function renderDashboard(config) {
   <script>
     const state = {
       authRequired: false,
-      token: localStorage.getItem('hermesToken') || '',
+      token: '',
       notes: []
     };
 
@@ -460,7 +460,6 @@ export function renderDashboard(config) {
       tokenInput: document.querySelector('#token-input')
     };
 
-    els.tokenInput.value = state.token;
     els.noteForm.addEventListener('submit', saveNote);
     els.refresh.addEventListener('click', () => loadNotes());
     els.search.addEventListener('input', debounce(() => loadNotes(), 240));
@@ -532,7 +531,6 @@ export function renderDashboard(config) {
     function saveToken(event) {
       event.preventDefault();
       state.token = els.tokenInput.value.trim();
-      localStorage.setItem('hermesToken', state.token);
       els.authMessage.hidden = true;
       loadNotes().catch((error) => showNotice(error.message, true));
     }
@@ -540,7 +538,6 @@ export function renderDashboard(config) {
     function clearToken() {
       state.token = '';
       els.tokenInput.value = '';
-      localStorage.removeItem('hermesToken');
       els.authMessage.hidden = state.authRequired ? false : true;
       renderNotes([]);
     }

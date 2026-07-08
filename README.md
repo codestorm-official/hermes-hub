@@ -21,7 +21,9 @@ Project ini sengaja dibuat sederhana:
 - **Docker Compose deployment** untuk lokal, VPS, dan Dokploy.
 - **Dokploy-safe compose** tanpa host port binding langsung di `compose.yaml`.
 
-Versi saat ini adalah MVP. Hermes Hub belum menjadi full AI agent, Telegram bot, Obsidian sync engine, atau browser controller, tetapi fondasi deployment dan data sudah siap untuk dikembangkan ke arah itu.
+Versi saat ini adalah MVP. Fitur notes adalah fondasi pertama, bukan tujuan akhir. Hermes Hub ditujukan sebagai control plane pribadi untuk capture, memory, audit log, approval workflow, Telegram capture, local agent, dan integrasi AI/browser yang lebih aman.
+
+Hermes Hub saat ini belum menjadi full AI agent, Telegram bot, Obsidian sync engine, atau browser controller, tetapi fondasi deployment dan data sudah siap untuk dikembangkan ke arah itu.
 
 ## Arsitektur
 
@@ -115,7 +117,9 @@ Dashboard `/` sekarang bisa dipakai untuk:
 - menghapus note;
 - melihat jumlah note dan update terakhir.
 
-Jika `HERMES_TOKEN` diset di environment, dashboard akan meminta access token sebelum notes bisa dibaca atau ditulis. Token disimpan di browser local storage.
+Jika `HERMES_TOKEN` diset di environment server, dashboard akan meminta access token sebelum notes bisa dibaca atau ditulis. Token ini tidak otomatis diketahui browser, karena `.env` hanya dibaca di sisi server. Browser perlu mengirim token sebagai `Authorization: Bearer ...` agar API tahu request tersebut boleh mengakses notes.
+
+Token dashboard hanya disimpan di memory tab browser. Jika halaman di-refresh, token perlu diisi ulang.
 
 Flow penggunaan harian:
 
