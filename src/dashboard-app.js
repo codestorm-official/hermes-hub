@@ -1206,13 +1206,14 @@ export function renderDashboard(config) {
           body: JSON.stringify({})
         });
         writeSessionToken(state.token);
+        await refreshApp(await api('/api/info'));
         els.loginToken.value = '';
         showApp();
-        await refreshApp(await api('/api/info'));
         showToast('Login successful.');
       } catch (error) {
         state.token = '';
         clearSessionToken();
+        showLogin();
         showLoginError(error.message || 'Login failed.');
         showToast(error.message || 'Login failed.', true);
       } finally {
@@ -1536,6 +1537,10 @@ export function renderDashboard(config) {
       const body = text ? JSON.parse(text) : {};
 
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Invalid Hermes token.');
+        }
+
         throw new Error(body.message || body.error || 'Request failed.');
       }
 
