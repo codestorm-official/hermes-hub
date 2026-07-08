@@ -1,4 +1,5 @@
 export function renderDashboard(config) {
+  const appAuthor = escapeHtml(config.appAuthor || 'Asep Saputra');
   const appName = escapeHtml(config.appName);
   const appUrl = escapeHtml(config.appUrl);
   const nodeEnv = escapeHtml(config.nodeEnv);
@@ -10,6 +11,8 @@ export function renderDashboard(config) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${appName} Hub</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/logo.svg">
   <style>
     :root {
       color-scheme: light;
@@ -34,6 +37,10 @@ export function renderDashboard(config) {
 
     * {
       box-sizing: border-box;
+    }
+
+    html {
+      -webkit-text-size-adjust: 100%;
     }
 
     body {
@@ -65,6 +72,7 @@ export function renderDashboard(config) {
       justify-content: center;
       min-height: 40px;
       padding: 0 14px;
+      touch-action: manipulation;
     }
 
     button.secondary {
@@ -112,6 +120,8 @@ export function renderDashboard(config) {
       border-radius: 8px;
       background: var(--surface);
       color: var(--text);
+      font-size: 16px;
+      min-width: 0;
       outline: 0;
       padding: 10px 11px;
     }
@@ -175,13 +185,10 @@ export function renderDashboard(config) {
       width: 42px;
       aspect-ratio: 1;
       border-radius: 8px;
-      background: linear-gradient(135deg, var(--accent), var(--gold));
-      color: white;
-      display: grid;
+      background: var(--sidebar);
+      display: block;
       flex: 0 0 auto;
-      font-size: 1.1rem;
-      font-weight: 900;
-      place-items: center;
+      object-fit: cover;
     }
 
     .login-card form {
@@ -209,6 +216,16 @@ export function renderDashboard(config) {
       align-items: center;
       display: flex;
       gap: 12px;
+      min-width: 0;
+    }
+
+    .sidebar-brand div {
+      min-width: 0;
+    }
+
+    .sidebar-brand strong {
+      display: block;
+      overflow-wrap: anywhere;
     }
 
     .sidebar-brand small,
@@ -369,6 +386,10 @@ export function renderDashboard(config) {
       margin-bottom: 15px;
     }
 
+    .panel-head > div {
+      min-width: 0;
+    }
+
     .panel h2 {
       font-size: 1.04rem;
       letter-spacing: 0;
@@ -476,6 +497,10 @@ export function renderDashboard(config) {
       display: flex;
       gap: 12px;
       justify-content: space-between;
+    }
+
+    .note-head > div:first-child {
+      min-width: 0;
     }
 
     .note h3 {
@@ -595,6 +620,10 @@ export function renderDashboard(config) {
       margin-bottom: 16px;
     }
 
+    .modal-head > div {
+      min-width: 0;
+    }
+
     .detail-grid {
       display: grid;
       gap: 12px;
@@ -649,6 +678,8 @@ export function renderDashboard(config) {
 
       .nav-button {
         justify-content: center;
+        min-height: 44px;
+        padding: 0 8px;
       }
 
       .nav-button span:last-child {
@@ -656,8 +687,7 @@ export function renderDashboard(config) {
       }
 
       .sidebar-foot {
-        display: flex;
-        justify-content: space-between;
+        display: grid;
       }
 
       .stats,
@@ -673,6 +703,16 @@ export function renderDashboard(config) {
         padding: 16px;
       }
 
+      .login-screen {
+        align-items: start;
+        padding: 16px;
+      }
+
+      .login-card {
+        margin-top: 18px;
+        padding: 18px;
+      }
+
       .topbar {
         display: grid;
       }
@@ -681,10 +721,54 @@ export function renderDashboard(config) {
         grid-template-columns: 1fr;
       }
 
+      .panel {
+        padding: 16px;
+      }
+
+      .panel-head,
+      .modal-head,
+      .note-head {
+        display: grid;
+      }
+
+      .panel-head > button,
+      .modal-head > button,
+      .note-actions,
+      .note-actions button,
+      .action-row button,
+      .model-row button {
+        width: 100%;
+      }
+
+      .secret-field {
+        align-items: stretch;
+      }
+
+      .icon-button {
+        flex-basis: 42px;
+      }
+
       .action-row,
       .toolbar,
       .model-row {
         display: grid;
+      }
+
+      .modal-backdrop {
+        align-items: stretch;
+        padding: 10px;
+      }
+
+      .note-modal {
+        max-height: calc(100vh - 20px);
+        padding: 16px;
+      }
+
+      .toast-stack {
+        bottom: 10px;
+        left: 10px;
+        max-width: none;
+        right: 10px;
       }
     }
   </style>
@@ -693,7 +777,7 @@ export function renderDashboard(config) {
   <section id="login-screen" class="login-screen" hidden>
     <div class="login-card">
       <div class="login-brand">
-        <div class="mark" aria-hidden="true">H</div>
+        <img class="mark" src="/logo.svg" alt="" aria-hidden="true">
         <div>
           <h1>${appName} Hub</h1>
           <p class="muted">${appUrl}</p>
@@ -712,22 +796,22 @@ export function renderDashboard(config) {
   <div id="app" class="app-shell" hidden>
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="mark" aria-hidden="true">H</div>
+        <img class="mark" src="/logo.svg" alt="" aria-hidden="true">
         <div>
-          <strong>${appName} Hub</strong>
-          <small>${appUrl}</small>
+          <strong>${appAuthor}</strong>
+          <small>Built by ${appAuthor}</small>
         </div>
       </div>
 
       <nav class="nav" aria-label="Main navigation">
-        <button class="nav-button" type="button" data-view="ask" aria-current="page"><span class="nav-icon">💬</span><span>Ask</span></button>
-        <button class="nav-button" type="button" data-view="capture"><span class="nav-icon">✍️</span><span>Capture</span></button>
-        <button class="nav-button" type="button" data-view="notes"><span class="nav-icon">🗒️</span><span>Notes</span></button>
-        <button class="nav-button" type="button" data-view="settings"><span class="nav-icon">⚙️</span><span>Settings</span></button>
+        <button class="nav-button" type="button" data-view="ask" aria-current="page"><span class="nav-icon">&#128172;</span><span>Ask</span></button>
+        <button class="nav-button" type="button" data-view="capture"><span class="nav-icon">&#9997;&#65039;</span><span>Capture</span></button>
+        <button class="nav-button" type="button" data-view="notes"><span class="nav-icon">&#128466;&#65039;</span><span>Notes</span></button>
+        <button class="nav-button" type="button" data-view="settings"><span class="nav-icon">&#9881;&#65039;</span><span>Settings</span></button>
       </nav>
 
       <div class="sidebar-foot">
-        <button id="logout" class="logout-button" type="button">🚪 Logout</button>
+        <button id="logout" class="logout-button" type="button">Logout</button>
       </div>
     </aside>
 
@@ -759,7 +843,7 @@ export function renderDashboard(config) {
           <div id="ask-notice" class="message" hidden></div>
           <form id="ask-form" autocomplete="off">
             <label>Question
-              <input id="ask-question" name="question" placeholder="Apa catatan saya tentang deploy minggu ini?">
+              <input id="ask-question" name="question" placeholder="What do my notes say about this week's deployment?">
             </label>
             <div class="action-row">
               <button id="ask-button" type="submit">Ask</button>
@@ -849,7 +933,7 @@ export function renderDashboard(config) {
             <label>API key
               <span class="secret-field">
                 <input id="llm-api-key" name="apiKey" type="password" placeholder="Leave blank to keep saved key">
-                <button id="toggle-api-key" class="icon-button" type="button" aria-label="Show API key" title="Show API key">👁️</button>
+                <button id="toggle-api-key" class="icon-button" type="button" aria-label="Show API key" title="Show API key">&#128065;&#65039;</button>
               </span>
             </label>
             <label class="checkline">
@@ -1068,12 +1152,12 @@ export function renderDashboard(config) {
         els.loginToken.value = '';
         showApp();
         await refreshApp(await api('/api/info'));
-        showToast('Login berhasil.');
+        showToast('Login successful.');
       } catch (error) {
         state.token = '';
         clearSessionToken();
         showLoginError(error.message || 'Login failed.');
-        showToast(error.message || 'Login gagal.', true);
+        showToast(error.message || 'Login failed.', true);
       } finally {
         els.loginButton.disabled = false;
       }
@@ -1088,12 +1172,12 @@ export function renderDashboard(config) {
 
       if (state.authRequired) {
         showLogin();
-        showToast('Logout berhasil.');
+        showToast('Logout successful.');
         return;
       }
 
       boot();
-      showToast('Logout berhasil.');
+      showToast('Logout successful.');
     }
 
     function showLogin() {
@@ -1139,7 +1223,7 @@ export function renderDashboard(config) {
         fillSettingsForm(response.llm || {});
         renderLlmStatus(response.llm || {});
         showSettingsNotice('Settings saved.', false);
-        showToast('Settings berhasil disimpan.');
+        showToast('Settings saved.');
       } catch (error) {
         showSettingsNotice(error.message, true);
         showToast(error.message, true);
@@ -1167,7 +1251,7 @@ export function renderDashboard(config) {
 
         if (!models.length) {
           showSettingsNotice('No models returned by provider.', true);
-          showToast('Provider tidak mengembalikan model.', true);
+          showToast('Provider did not return any models.', true);
           return;
         }
 
@@ -1176,7 +1260,7 @@ export function renderDashboard(config) {
           models.map((model) => '<option value="' + escapeHtml(model) + '">' + escapeHtml(model) + '</option>').join('');
         els.modelSelect.hidden = false;
         showSettingsNotice(models.length + ' models loaded.', false);
-        showToast(models.length + ' models berhasil dimuat.');
+        showToast(models.length + ' models loaded.');
       } catch (error) {
         showSettingsNotice(error.message, true);
         showToast(error.message, true);
@@ -1191,7 +1275,7 @@ export function renderDashboard(config) {
       try {
         await loadNotes();
         showNotice('Notes refreshed.', false);
-        showToast('Notes berhasil direfresh.');
+        showToast('Notes refreshed.');
       } catch (error) {
         showNotice(error.message, true);
         showToast(error.message, true);
@@ -1229,7 +1313,7 @@ export function renderDashboard(config) {
         });
         els.noteForm.reset();
         showNotice('Note saved.', false);
-        showToast('Note berhasil disimpan.');
+        showToast('Note saved.');
         await loadNotes();
         setView('notes');
       } catch (error) {
@@ -1253,7 +1337,7 @@ export function renderDashboard(config) {
 
       if (!state.llmConfigured) {
         showAskNotice('LLM is not configured yet.', true);
-        showToast('LLM belum dikonfigurasi.', true);
+        showToast('LLM is not configured yet.', true);
         setView('settings');
         return;
       }
@@ -1272,7 +1356,7 @@ export function renderDashboard(config) {
         els.askNotice.hidden = true;
         els.answer.textContent = response.answer || 'No answer returned.';
         renderSources(response.sources || []);
-        showToast('Jawaban sudah siap.');
+        showToast('Answer ready.');
       } catch (error) {
         els.answer.hidden = true;
         showAskNotice(error.message, true);
@@ -1285,7 +1369,7 @@ export function renderDashboard(config) {
     async function deleteNote(id) {
       await api('/api/notes/' + encodeURIComponent(id), { method: 'DELETE' });
       showNotice('Note deleted.', false);
-      showToast('Note berhasil dihapus.');
+      showToast('Note deleted.');
       await loadNotes();
     }
 
@@ -1421,7 +1505,7 @@ export function renderDashboard(config) {
       const note = state.notes.find((item) => item.id === id);
 
       if (!note) {
-        showToast('Note tidak ditemukan.', true);
+        showToast('Note not found.', true);
         return;
       }
 
@@ -1496,7 +1580,7 @@ export function renderDashboard(config) {
     function toggleApiKeyVisibility() {
       const isHidden = els.llmApiKey.type === 'password';
       els.llmApiKey.type = isHidden ? 'text' : 'password';
-      els.toggleApiKey.textContent = isHidden ? '🔒' : '👁️';
+      els.toggleApiKey.innerHTML = isHidden ? '&#128274;' : '&#128065;&#65039;';
       els.toggleApiKey.setAttribute('aria-label', isHidden ? 'Hide API key' : 'Show API key');
       els.toggleApiKey.setAttribute('title', isHidden ? 'Hide API key' : 'Show API key');
     }

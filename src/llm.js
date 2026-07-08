@@ -126,7 +126,7 @@ function normaliseAnswerText(value) {
     .replace(/[\u00a0\u2007\u202f]/g, ' ')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
-    .replace(/\s*\((?:catatan|note)\s+\d+\)/gi, '')
+    .replace(/\s*\((?:note|source)\s+\d+\)/gi, '')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
@@ -196,9 +196,9 @@ function buildMessages(question, context) {
         'You are Hermes Hub, a private second-brain assistant.',
         'Answer using only the provided notes context.',
         'Write in the same language as the user when possible.',
-        'Answer directly instead of opening with phrases like "According to the note" or "Menurut catatan", unless the user asks for sources.',
+        'Answer directly instead of opening with phrases like "According to the note", unless the user asks for sources.',
         'Use natural plain prose without Markdown formatting.',
-        'Do not include inline source labels such as "(Note 1)" or "(Catatan 1)" because sources are shown separately.',
+        'Do not include inline source labels such as "(Note 1)" or "(Source 1)" because sources are shown separately.',
         'Mention note titles only when they are necessary to answer the question.',
         'If the notes do not contain enough information, say so clearly.',
         'Keep the answer concise and practical.'

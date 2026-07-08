@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
@@ -7,9 +8,11 @@ import { answerFromNotes, isLlmConfigured, loadLlmModels, resolveLlmConfig } fro
 import { createNoteStore } from './storage.js';
 
 const DEFAULT_PORT = 3000;
+const PUBLIC_DIR = new URL('../public/', import.meta.url);
 
 export function resolveConfig(env = process.env) {
   return {
+    appAuthor: env.APP_AUTHOR || 'Asep Saputra',
     appName: env.APP_NAME || 'Hermes',
     appUrl: env.APP_URL || `http://localhost:${env.PORT || DEFAULT_PORT}`,
     authToken: env.HERMES_TOKEN || '',
@@ -90,9 +93,20 @@ async function routeRequest(request, response, config, store, dependencies) {
       return handleAsk(request, response, method, config, store, dependencies);
     }
 
-    if (url.pathname === '/favicon.ico') {
-      response.statusCode = 204;
-      return response.end();
+    if (url.pathname === '/logo.svg') {
+      if (!allowsMethod(method, ['GET', 'HEAD'])) {
+        return methodNotAllowed(response, ['GET', 'HEAD'], method);
+      }
+
+      return sendPublicAsset(response, 'logo.svg', 'image/svg+xml; charset=utf-8', method);
+    }
+
+    if (url.pathname === '/favicon.svg' || url.pathname === '/favicon.ico') {
+      if (!allowsMethod(method, ['GET', 'HEAD'])) {
+        return methodNotAllowed(response, ['GET', 'HEAD'], method);
+      }
+
+      return sendPublicAsset(response, 'favicon.svg', 'image/svg+xml; charset=utf-8', method);
     }
 
     if (url.pathname === '/') {
@@ -166,6 +180,20 @@ function sendHtml(response, statusCode, html, method = 'GET') {
   }
 
   return response.end(html);
+}
+
+async function sendPublicAsset(response, filename, contentType, method = 'GET') {
+  const body = await readFile(new URL(filename, PUBLIC_DIR));
+  response.statusCode = 200;
+  response.setHeader('Content-Type', contentType);
+  response.setHeader('Cache-Control', 'public, max-age=86400');
+  response.setHeader('Content-Length', body.length);
+
+  if (method === 'HEAD') {
+    return response.end();
+  }
+
+  return response.end(body);
 }
 
 function healthPayload(config) {

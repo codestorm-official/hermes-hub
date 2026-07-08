@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Asep Saputra logo">
+  <defs>
+    <linearGradient id="bg" x1="86" y1="76" x2="436" y2="438" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#287d72"/>
+      <stop offset="0.56" stop-color="#20231f"/>
+      <stop offset="1" stop-color="#c99435"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="148" y1="118" x2="364" y2="398" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#dfeee9"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M144 368 256 112l112 256h-58l-22-56h-65l-22 56h-57Zm96-102h31l-15-44-16 44Z" fill="url(#stroke)"/>
+  <path d="M154 396h204" fill="none" stroke="#f5ebd0" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="382" cy="132" r="26" fill="#f5ebd0"/>
+</svg>

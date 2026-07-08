@@ -7,6 +7,7 @@ ENV PORT=3000
 ENV DATA_DIR=/app/data
 
 COPY --chown=node:node package.json ./
+COPY --chown=node:node public ./public
 COPY --chown=node:node src ./src
 
 RUN mkdir -p /app/data && chown -R node:node /app/data

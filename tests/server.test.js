@@ -9,11 +9,13 @@ import { createHermesServer, resolveConfig } from '../src/server.js';
 
 test('resolveConfig applies defaults and parses booleans', () => {
   const config = resolveConfig({
+    APP_AUTHOR: 'Asep Saputra',
     APP_NAME: 'Hermes Test',
     PORT: '8080',
     TRUST_PROXY: 'false'
   });
 
+  assert.equal(config.appAuthor, 'Asep Saputra');
   assert.equal(config.appName, 'Hermes Test');
   assert.equal(config.port, 8080);
   assert.equal(config.trustProxy, false);
@@ -42,6 +44,21 @@ test('home page renders configured service name', async (t) => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /text\/html/);
   assert.match(body, /Hermes Test Hub/);
+  assert.match(body, /Built by Asep Saputra/);
+});
+
+test('logo and favicon assets are served', async (t) => {
+  const { baseUrl, close } = await startServer();
+  t.after(close);
+
+  const logo = await fetch(`${baseUrl}/logo.svg`);
+  const favicon = await fetch(`${baseUrl}/favicon.svg`);
+
+  assert.equal(logo.status, 200);
+  assert.match(logo.headers.get('content-type'), /image\/svg\+xml/);
+  assert.match(await logo.text(), /Asep Saputra logo/);
+  assert.equal(favicon.status, 200);
+  assert.match(favicon.headers.get('content-type'), /image\/svg\+xml/);
 });
 
 test('notes api requires token when configured', async (t) => {
@@ -335,13 +352,13 @@ test('answerFromNotes returns natural text without inline source formatting', as
     LLM_MODEL: 'test-model'
   });
   const answer = await answerFromNotes({
-    question: 'Kapan deploy Pefindo?',
+    question: 'When is the Pefindo deployment?',
     config,
     notes: [
       {
         id: 'note-1',
-        title: 'Jadwal Deploy Juli',
-        content: 'Pefindo masuk daftar deployment bulan Juli 2026.',
+        title: 'July Deployment Schedule',
+        content: 'Pefindo is included in the July 2026 deployment list.',
         tags: ['deploy'],
         source: 'manual',
         updatedAt: '2026-07-01T00:00:00.000Z'
@@ -351,7 +368,7 @@ test('answerFromNotes returns natural text without inline source formatting', as
       choices: [
         {
           message: {
-            content: 'Menurut catatan **"Jadwal Deploy Juli"**, proyek **Pefindo** termasuk dalam daftar kegiatan deployment untuk bulan Juli. Jadi, deployment Pefindo dijadwalkan terjadi pada Juli\u202f2026. (Catatan 1)'
+            content: 'According to **"July Deployment Schedule"**, **Pefindo** is included in the July deployment list. So, the Pefindo deployment is scheduled for July\u202f2026. (Note 1)'
           }
         }
       ]
@@ -365,7 +382,7 @@ test('answerFromNotes returns natural text without inline source formatting', as
 
   assert.equal(
     answer.answer,
-    'Menurut catatan "Jadwal Deploy Juli", proyek Pefindo termasuk dalam daftar kegiatan deployment untuk bulan Juli. Jadi, deployment Pefindo dijadwalkan terjadi pada Juli 2026.'
+    'According to "July Deployment Schedule", Pefindo is included in the July deployment list. So, the Pefindo deployment is scheduled for July 2026.'
   );
 });
 
