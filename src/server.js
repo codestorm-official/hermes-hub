@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 import { renderDashboard } from './dashboard-app.js';
@@ -91,6 +91,10 @@ async function routeRequest(request, response, config, store, dependencies) {
 
     if (url.pathname === '/api/settings/channels/telegram') {
       return handleTelegramSettings(request, response, method, config, store, dependencies);
+    }
+
+    if (url.pathname === '/telegram/webhook') {
+      return handleTelegramWebhook(request, response, method, config, store, dependencies);
     }
 
     if (url.pathname === '/api/notes') {
@@ -433,13 +437,47 @@ async function handleTelegramSettings(request, response, method, config, store, 
 
   const payload = await readRequestJson(request);
   const telegram = await testTelegramBotToken(payload.botToken, dependencies.fetchImpl);
+  const settings = await store.readSettings();
+  const currentTelegram = getSavedTelegramSettings(settings);
+  const webhookSecret = currentTelegram.webhookSecret || createTelegramWebhookSecret();
+  const webhook = await configureTelegramWebhook({
+    appUrl: config.appUrl,
+    botToken: payload.botToken,
+    fetchImpl: dependencies.fetchImpl,
+    webhookSecret
+  });
 
   await store.updateTelegramSettings({
     botToken: payload.botToken,
-    ...telegram
+    ...telegram,
+    ...webhook
   });
 
   return sendJson(response, 200, await settingsPayload(config, store), method);
+}
+
+async function handleTelegramWebhook(request, response, method, config, store, dependencies) {
+  if (!allowsMethod(method, ['POST'])) {
+    return methodNotAllowed(response, ['POST'], method);
+  }
+
+  const settings = await store.readSettings();
+  const telegram = getSavedTelegramSettings(settings);
+
+  if (!telegram.botToken || !telegram.webhookSecret) {
+    return sendJson(response, 403, { error: 'telegram_webhook_not_configured' }, method);
+  }
+
+  const secret = String(request.headers['x-telegram-bot-api-secret-token'] || '');
+
+  if (!safeEqual(secret, telegram.webhookSecret)) {
+    return sendJson(response, 401, { error: 'telegram_webhook_unauthorized' }, method);
+  }
+
+  const update = await readRequestJson(request);
+  await processTelegramUpdate(update, config, store, dependencies, telegram);
+
+  return sendJson(response, 200, { ok: true }, method);
 }
 
 async function handleAsk(request, response, method, config, store, dependencies) {
@@ -489,6 +527,9 @@ async function settingsPayload(config, store) {
         botUsername: savedTelegram.botUsername || '',
         botFirstName: savedTelegram.botFirstName || '',
         validatedAt: savedTelegram.validatedAt || null,
+        webhookUrl: savedTelegram.webhookUrl || '',
+        webhookSetAt: savedTelegram.webhookSetAt || null,
+        webhookConfigured: Boolean(savedTelegram.webhookUrl && savedTelegram.webhookSecret),
         configured: Boolean(savedTelegram.botToken && savedTelegram.validatedAt),
         hasBotToken: Boolean(savedTelegram.botToken)
       }
