@@ -105,6 +105,14 @@ async function routeRequest(request, response, config, store, dependencies) {
       return handleAsk(request, response, method, config, store, dependencies);
     }
 
+    if (url.pathname === '/dashboard.js') {
+      if (!allowsMethod(method, ['GET', 'HEAD'])) {
+        return methodNotAllowed(response, ['GET', 'HEAD'], method);
+      }
+
+      return sendDashboardScript(response, method);
+    }
+
     if (url.pathname === '/logo.svg') {
       if (!allowsMethod(method, ['GET', 'HEAD'])) {
         return methodNotAllowed(response, ['GET', 'HEAD'], method);
@@ -165,7 +173,7 @@ function setBaseHeaders(response) {
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
   );
 }
 
@@ -200,6 +208,23 @@ async function sendPublicAsset(response, filename, contentType, method = 'GET') 
   response.setHeader('Content-Type', contentType);
   response.setHeader('Cache-Control', 'public, max-age=86400');
   response.setHeader('Content-Length', body.length);
+
+  if (method === 'HEAD') {
+    return response.end();
+  }
+
+  return response.end(body);
+}
+
+async function sendDashboardScript(response, method = 'GET') {
+  const source = await readFile(new URL('dashboard-app.js', import.meta.url), 'utf8');
+  const match = source.match(/<script>([\s\S]*?)<\/script>/);
+  const body = match ? match[1].trimStart() : '';
+
+  response.statusCode = 200;
+  response.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('Content-Length', Buffer.byteLength(body));
 
   if (method === 'HEAD') {
     return response.end();

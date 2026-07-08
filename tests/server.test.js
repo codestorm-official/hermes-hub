@@ -46,15 +46,22 @@ test('home page renders configured service name', async (t) => {
   assert.match(body, /Hermes Test Hub/);
   assert.match(body, /Built by Asep Saputra/);
   assert.match(body, /<section id="login-screen" class="login-screen">/);
+  assert.match(body, /<script src="\/dashboard\.js" defer><\/script>/);
 });
 
-test('logo and favicon assets are served', async (t) => {
+test('static dashboard assets are served', async (t) => {
   const { baseUrl, close } = await startServer();
   t.after(close);
 
+  const dashboardScript = await fetch(`${baseUrl}/dashboard.js`);
   const logo = await fetch(`${baseUrl}/logo.svg`);
   const favicon = await fetch(`${baseUrl}/favicon.svg`);
+  const dashboardScriptBody = await dashboardScript.text();
 
+  assert.equal(dashboardScript.status, 200);
+  assert.match(dashboardScript.headers.get('content-type'), /application\/javascript/);
+  assert.match(dashboardScriptBody, /HERMES_DASHBOARD_BOOTED/);
+  assert.doesNotThrow(() => new Function(dashboardScriptBody));
   assert.equal(logo.status, 200);
   assert.match(logo.headers.get('content-type'), /image\/svg\+xml/);
   assert.match(await logo.text(), /Asep Saputra logo/);

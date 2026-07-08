@@ -1005,7 +1005,10 @@ export function renderDashboard(config) {
     </div>
   </section>
 
+  <script src="/dashboard.js" defer></script>
   <script>
+    if (!window.__HERMES_DASHBOARD_BOOTED__) {
+      window.__HERMES_DASHBOARD_BOOTED__ = true;
     const SESSION_KEY = 'hermesToken';
     const viewMeta = {
       ask: {
@@ -1902,6 +1905,7 @@ export function renderDashboard(config) {
       } catch {
         return;
       }
+    }
     }
   </script>
 </body>
