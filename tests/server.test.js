@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { createHermesServer, resolveConfig } from '../src/server.js';
@@ -37,7 +40,69 @@ test('home page renders configured service name', async (t) => {
 
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /text\/html/);
-  assert.match(body, /Hermes Test/);
+  assert.match(body, /Hermes Test Hub/);
+});
+
+test('notes api requires token when configured', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const { baseUrl, close } = await startServer({ authToken: 'secret', dataDir });
+  t.after(close);
+
+  const unauthorized = await fetch(`${baseUrl}/api/notes`);
+  const authorized = await fetch(`${baseUrl}/api/notes`, {
+    headers: {
+      Authorization: 'Bearer secret'
+    }
+  });
+
+  assert.equal(unauthorized.status, 401);
+  assert.deepEqual(await unauthorized.json(), { error: 'unauthorized' });
+  assert.equal(authorized.status, 200);
+  assert.deepEqual(await authorized.json(), {
+    notes: [],
+    stats: {
+      noteCount: 0,
+      latestNoteAt: null
+    }
+  });
+});
+
+test('notes api creates, searches, and deletes notes', async (t) => {
+  const dataDir = await createTempDataDir(t);
+  const { baseUrl, close } = await startServer({ dataDir });
+  t.after(close);
+
+  const created = await fetch(`${baseUrl}/api/notes`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Dokploy checklist',
+      content: 'Route domain to internal port 3000.',
+      tags: 'deploy, hermes',
+      source: 'manual'
+    })
+  });
+  const createBody = await created.json();
+
+  assert.equal(created.status, 201);
+  assert.equal(createBody.note.title, 'Dokploy checklist');
+  assert.deepEqual(createBody.note.tags, ['deploy', 'hermes']);
+
+  const search = await fetch(`${baseUrl}/api/notes?query=dokploy`);
+  const searchBody = await search.json();
+
+  assert.equal(search.status, 200);
+  assert.equal(searchBody.notes.length, 1);
+  assert.equal(searchBody.stats.noteCount, 1);
+
+  const deleted = await fetch(`${baseUrl}/api/notes/${createBody.note.id}`, {
+    method: 'DELETE'
+  });
+  const listAfterDelete = await fetch(`${baseUrl}/api/notes`);
+  const listAfterDeleteBody = await listAfterDelete.json();
+
+  assert.equal(deleted.status, 204);
+  assert.equal(listAfterDeleteBody.notes.length, 0);
+  assert.equal(listAfterDeleteBody.stats.noteCount, 0);
 });
 
 test('unsupported routes and methods are explicit', async (t) => {
@@ -76,4 +141,10 @@ async function startServer(options = {}) {
       });
     })
   };
+}
+
+async function createTempDataDir(t) {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'hermes-test-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  return dataDir;
 }

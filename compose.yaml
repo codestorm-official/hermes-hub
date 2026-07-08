@@ -7,9 +7,16 @@ services:
     environment:
       APP_NAME: ${APP_NAME:-Hermes}
       APP_URL: ${APP_URL:-http://localhost:3000}
+      DATA_DIR: /app/data
+      HERMES_TOKEN: ${HERMES_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       NODE_ENV: production
       PORT: 3000
       TRUST_PROXY: ${TRUST_PROXY:-true}
     expose:
       - "3000"
+    volumes:
+      - hermes-data:/app/data
+
+volumes:
+  hermes-data:

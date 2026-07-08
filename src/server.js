@@ -1,5 +1,9 @@
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+
+import { renderDashboard } from './dashboard.js';
+import { createNoteStore } from './storage.js';
 
 const DEFAULT_PORT = 3000;
 
@@ -7,6 +11,8 @@ export function resolveConfig(env = process.env) {
   return {
     appName: env.APP_NAME || 'Hermes',
     appUrl: env.APP_URL || `http://localhost:${env.PORT || DEFAULT_PORT}`,
+    authToken: env.HERMES_TOKEN || '',
+    dataDir: env.DATA_DIR || 'data',
     logLevel: env.LOG_LEVEL || 'info',
     nodeEnv: env.NODE_ENV || 'development',
     port: parsePort(env.PORT),
@@ -16,25 +22,49 @@ export function resolveConfig(env = process.env) {
 }
 
 export function createHermesServer(options = {}) {
-  const config = { ...resolveConfig(), ...options };
+  const { noteStore, ...overrides } = options;
+  const config = { ...resolveConfig(), ...overrides };
+  const store = noteStore || createNoteStore({ dataDir: config.dataDir });
 
   return createServer((request, response) => {
+    routeRequest(request, response, config, store).catch((error) => {
+      const statusCode = error.statusCode || 500;
+      sendJson(response, statusCode, {
+        error: error.code || 'internal_error',
+        message: statusCode === 500 ? 'Internal server error.' : error.message
+      });
+    });
+  });
+}
+
+async function routeRequest(request, response, config, store) {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
     const method = request.method || 'GET';
 
     setBaseHeaders(response);
 
-    if (method !== 'GET' && method !== 'HEAD') {
-      response.setHeader('Allow', 'GET, HEAD');
-      return sendJson(response, 405, { error: 'method_not_allowed' }, method);
-    }
-
     if (url.pathname === '/health' || url.pathname === '/ready') {
+      if (!allowsMethod(method, ['GET', 'HEAD'])) {
+        return methodNotAllowed(response, ['GET', 'HEAD'], method);
+      }
+
       return sendJson(response, 200, healthPayload(config), method);
     }
 
     if (url.pathname === '/api/info') {
-      return sendJson(response, 200, infoPayload(config, request), method);
+      if (!allowsMethod(method, ['GET', 'HEAD'])) {
+        return methodNotAllowed(response, ['GET', 'HEAD'], method);
+      }
+
+      return sendJson(response, 200, await infoPayload(config, request, store), method);
+    }
+
+    if (url.pathname === '/api/notes') {
+      return handleNotesCollection(request, response, method, url, config, store);
+    }
+
+    if (url.pathname.startsWith('/api/notes/')) {
+      return handleNotesItem(request, response, method, url, config, store);
     }
 
     if (url.pathname === '/favicon.ico') {
@@ -43,11 +73,14 @@ export function createHermesServer(options = {}) {
     }
 
     if (url.pathname === '/') {
-      return sendHtml(response, 200, renderHome(config), method);
+      if (!allowsMethod(method, ['GET', 'HEAD'])) {
+        return methodNotAllowed(response, ['GET', 'HEAD'], method);
+      }
+
+      return sendHtml(response, 200, renderDashboard(config), method);
     }
 
     return sendJson(response, 404, { error: 'not_found' }, method);
-  });
 }
 
 function parsePort(value) {
@@ -68,13 +101,22 @@ function parseBoolean(value, fallback) {
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
 }
 
+function allowsMethod(method, allowedMethods) {
+  return allowedMethods.includes(method);
+}
+
+function methodNotAllowed(response, allowedMethods, method = 'GET') {
+  response.setHeader('Allow', allowedMethods.join(', '));
+  return sendJson(response, 405, { error: 'method_not_allowed' }, method);
+}
+
 function setBaseHeaders(response) {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
+    "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
   );
 }
 
@@ -113,11 +155,15 @@ function healthPayload(config) {
   };
 }
 
-function infoPayload(config, request) {
+async function infoPayload(config, request, store) {
+  const stats = await store.stats();
+
   return {
     service: config.appName,
     environment: config.nodeEnv,
     url: config.appUrl,
+    notesAuthRequired: Boolean(config.authToken),
+    stats,
     clientIp: getClientIp(config, request)
   };
 }
@@ -128,6 +174,121 @@ function getClientIp(config, request) {
   }
 
   return request.socket.remoteAddress || null;
+}
+
+async function handleNotesCollection(request, response, method, url, config, store) {
+  if (!allowsMethod(method, ['GET', 'HEAD', 'POST'])) {
+    return methodNotAllowed(response, ['GET', 'HEAD', 'POST'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  if (method === 'POST') {
+    const payload = await readRequestJson(request);
+    const note = await store.createNote(payload);
+    return sendJson(response, 201, { note }, method);
+  }
+
+  const query = url.searchParams.get('query') || '';
+  const notes = await store.listNotes({ query });
+  const stats = await store.stats();
+
+  return sendJson(response, 200, { notes, stats }, method);
+}
+
+async function handleNotesItem(request, response, method, url, config, store) {
+  if (!allowsMethod(method, ['DELETE'])) {
+    return methodNotAllowed(response, ['DELETE'], method);
+  }
+
+  if (!isAuthorized(config, request)) {
+    return unauthorized(response, method);
+  }
+
+  const id = decodeURIComponent(url.pathname.slice('/api/notes/'.length));
+
+  if (!id) {
+    return sendJson(response, 400, { error: 'invalid_note_id' }, method);
+  }
+
+  const deleted = await store.deleteNote(id);
+
+  if (!deleted) {
+    return sendJson(response, 404, { error: 'note_not_found' }, method);
+  }
+
+  response.statusCode = 204;
+  return response.end();
+}
+
+function isAuthorized(config, request) {
+  if (!config.authToken) {
+    return true;
+  }
+
+  const headerToken = request.headers['x-hermes-token'];
+  const authHeader = request.headers.authorization || '';
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice('bearer '.length).trim()
+    : '';
+  const token = String(headerToken || bearerToken || '');
+
+  return safeEqual(token, config.authToken);
+}
+
+function safeEqual(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function unauthorized(response, method = 'GET') {
+  response.setHeader('WWW-Authenticate', 'Bearer realm="Hermes"');
+  return sendJson(response, 401, { error: 'unauthorized' }, method);
+}
+
+async function readRequestJson(request, maxBytes = 1024 * 1024) {
+  const chunks = [];
+  let totalBytes = 0;
+
+  for await (const chunk of request) {
+    totalBytes += chunk.length;
+
+    if (totalBytes > maxBytes) {
+      const error = new Error('Request body is too large.');
+      error.statusCode = 413;
+      error.code = 'payload_too_large';
+      throw error;
+    }
+
+    chunks.push(chunk);
+  }
+
+  const body = Buffer.concat(chunks).toString('utf8').trim();
+
+  if (!body) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    const error = new Error('Request body must be valid JSON.');
+    error.statusCode = 400;
+    error.code = 'invalid_json';
+    throw error;
+  }
 }
 
 function renderHome(config) {

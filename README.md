@@ -1,124 +1,184 @@
-# Hermes
+# Hermes Hub
 
-Hermes adalah service Node.js kecil yang siap dijalankan dengan Docker Compose dan dideploy ke Dokploy. Project ini tidak memakai dependency runtime eksternal, jadi image tetap ringan dan proses deploy sederhana.
+Hermes Hub adalah lightweight personal AI hub dan second-brain starter service. Project ini menyediakan dashboard kecil untuk capture notes, search notes, health check, dan fondasi awal untuk integrasi berikutnya seperti Telegram capture, local agent, browser workflow, approval queue, dan AI retrieval.
 
-## Arah Project
+Project ini sengaja dibuat sederhana:
 
-Hermes project ini disiapkan sebagai fondasi **personal AI hub / command center**. Versi sekarang masih starter service yang bisa hidup di Dokploy, tetapi arah jangka menengahnya adalah menjadi pintu masuk untuk second brain, Telegram/web dashboard, audit log, job queue, dan agent lokal.
+- Node.js runtime.
+- Tanpa dependency runtime eksternal.
+- Siap Docker Compose.
+- Cocok untuk deploy lokal, VPS manual, atau Dokploy.
+- Notes persisten melalui Docker volume.
+- Notes API bisa dikunci dengan `HERMES_TOKEN`.
 
-Target arsitektur yang diinginkan:
+## Fitur
+
+- **Dashboard** di `/` untuk capture, search, dan delete notes.
+- **Notes API** untuk integrasi programmatic.
+- **Health endpoints** untuk deployment checks.
+- **Token guard** dengan `HERMES_TOKEN` untuk notes dashboard dan API.
+- **Persistent storage** di `/app/data/notes.json`.
+- **Docker Compose deployment** untuk lokal, VPS, dan Dokploy.
+- **Dokploy-safe compose** tanpa host port binding langsung di `compose.yaml`.
+
+Versi saat ini adalah MVP. Hermes Hub belum menjadi full AI agent, Telegram bot, Obsidian sync engine, atau browser controller, tetapi fondasi deployment dan data sudah siap untuk dikembangkan ke arah itu.
+
+## Arsitektur
+
+Arsitektur saat ini:
 
 ```text
-Kamu
+Browser / API Client
+  -> Hermes Hub
+      -> Dashboard
+      -> Notes API
+      -> Health API
+      -> JSON storage volume
+```
+
+Arah jangka panjang:
+
+```text
+User
   -> Telegram / Web Dashboard
-  -> Hermes di VPS
-  -> tools aman:
+  -> Hermes Hub di VPS
+  -> safe tools:
       - notes / second brain
       - audit log
       - job queue
-      - local agent di laptop
+      - approval workflow
+      - local agent
       - browser profile khusus
 ```
 
-Use case utama:
+## Use Case
 
 - **Second brain** - simpan ide, link, catatan, log kerja, ringkasan chat, lalu cari lagi saat dibutuhkan.
-- **Inbox pribadi** - kirim catatan dari Telegram atau web UI seperti "simpan ide ini", "catat link ini", atau "ringkas thread ini".
+- **Inbox pribadi** - kirim catatan dari dashboard atau integrasi seperti Telegram.
 - **Dashboard kontrol** - lihat status agent, notes terakhir, action pending, health check, dan error deploy.
 - **Approval center** - Hermes boleh menyiapkan draft atau rencana action, tetapi action eksternal seperti post, reply, delete, follow, atau DM harus minta approval dulu.
-- **Gateway ke komputer lokal** - VPS tetap always-on, sementara hal sensitif seperti Obsidian vault asli atau browser session utama tetap di komputer pribadi.
-- **Memory untuk AI pribadi** - Hermes bisa menyimpan konteks project, preferensi, catatan teknis, dan keputusan lama agar AI bisa menjawab berdasarkan data pribadi.
+- **Gateway ke komputer lokal** - VPS tetap always-on, sementara hal sensitif seperti Obsidian vault atau browser session bisa tetap di komputer pribadi.
+- **Memory untuk AI pribadi** - Hermes dapat berkembang menjadi memory layer untuk project, preferensi, catatan teknis, dan keputusan lama.
 
-## Hermes Second Brain
+## Requirements
 
-Ada referensi project public: [andrihakim146/hermes-second-brain](https://github.com/andrihakim146/hermes-second-brain). Project itu adalah AI second brain untuk Obsidian yang dikendalikan dari Telegram lewat Hermes Agent dan MCP.
+Untuk local development:
 
-Konsepnya:
+- Node.js 20.11 atau lebih baru.
 
-```text
-Telegram -> Hermes Agent -> Capability Gateway -> Second Brain Core -> Obsidian Vault
-```
+Untuk Docker deployment:
 
-Poin yang bisa diadopsi:
+- Docker.
+- Docker Compose.
 
-- Vault Markdown/Obsidian tetap menjadi source of truth untuk catatan.
-- SQLite dipakai untuk job, audit, index pencarian, dan metadata operasional.
-- Tool dibatasi dengan capability/permission level.
-- Operasi write seperti capture, move, update, dan undo harus atomik, reversible, dan tercatat di audit log.
-- Note sensitif tidak boleh sembarang dikirim ke AI, di-embed, atau diindeks penuh.
+Untuk Dokploy deployment:
 
-Untuk project ini, jalur paling masuk akal adalah **hybrid**: Hermes di VPS/Dokploy menjadi orchestrator dan dashboard, sedangkan vault Obsidian atau browser agent yang sensitif tetap berjalan di mesin lokal melalui koneksi privat seperti Tailscale atau tunnel lain.
+- Dokploy server.
+- Repository Git berisi project ini.
+- Domain atau subdomain yang mengarah ke server Dokploy.
 
-## VPS vs Lokal
+## Quick Start
 
-Hermes bisa dijalankan di VPS, terutama untuk bagian yang butuh always-on seperti gateway Telegram, webhook, health check, dashboard, job queue, dan API kecil.
+Ada tiga cara umum menjalankan Hermes Hub:
 
-Namun tidak semua hal sebaiknya dipindahkan ke VPS:
-
-- Jika vault Obsidian berisi catatan pribadi, lebih aman vault tetap di komputer pribadi atau disinkronkan dengan strategi backup/encryption yang jelas.
-- Jika Hermes perlu mengakses browser yang sudah login, sebaiknya akses itu berjalan di komputer lokal dengan browser profile khusus.
-- VPS sebaiknya tidak menyimpan token, cookies, atau session browser utama kecuali benar-benar diperlukan dan sudah dipisahkan dari akun utama.
-
-Pilihan deployment:
-
-| Model | Cocok Untuk | Risiko |
+| Mode | Cocok Untuk | File Compose |
 | --- | --- | --- |
-| Full VPS | Bot always-on, notes non-sensitif, dashboard publik dengan auth. | Data pribadi dan secrets hidup di server. |
-| Full lokal | Vault pribadi, browser session utama, eksperimen aman. | Tidak always-on kecuali komputer selalu menyala. |
-| Hybrid | VPS sebagai gateway, komputer lokal sebagai executor sensitif. | Butuh tunnel/private network dan desain permission yang rapi. |
+| Local Node.js | Development cepat tanpa Docker. | Tidak perlu Compose. |
+| Local Docker / VPS manual | Server biasa dengan reverse proxy sendiri. | `compose.yaml` + `compose.local.yaml` |
+| Dokploy | VPS yang dikelola oleh Dokploy. | `compose.yaml` |
 
-Rekomendasi default: **hybrid**.
-
-## Browser Control
-
-Beberapa workflow Hermes/agent bisa mengendalikan browser yang sudah login, misalnya untuk membaca halaman atau menyiapkan balasan di Threads. Ini berbeda dengan membuka browser session baru: agent memakai session/profile yang sudah ada, biasanya lewat browser extension, local browser automation agent, remote debugging, atau browser profile khusus.
-
-Batas aman yang disarankan:
-
-- Jangan pakai browser profile utama untuk automation.
-- Buat browser profile khusus untuk Hermes.
-- Pisahkan akun eksperimen dari akun utama jika memungkinkan.
-- Semua action eksternal harus melalui approval: post, reply, delete, follow, DM, email, transaksi, atau perubahan setting akun.
-- Log semua action dan simpan status pending sebelum dieksekusi.
-- Jangan simpan cookies/session browser di VPS jika browser aslinya ada di komputer lokal.
-
-Arsitektur yang lebih aman:
+Setelah service berjalan, buka dashboard:
 
 ```text
-Telegram / Web UI
-  -> Hermes di VPS
-  -> MCP / private API
-  -> Local Agent di komputer pribadi
-  -> Browser profile khusus
+http://localhost:3000
 ```
 
-## Roadmap MVP
+atau domain production:
 
-Urutan implementasi yang disarankan:
+```text
+https://hermes.example.com
+```
 
-1. **Hermes Hub MVP** - auth sederhana, notes, search, audit log, dan dashboard.
-2. **Telegram capture** - simpan note/link dari Telegram dengan allowlist user.
-3. **Second brain storage** - integrasi Markdown vault atau storage SQLite dulu.
-4. **Approval center** - action pending, approve/reject, dan audit trail.
-5. **Local agent** - koneksi privat ke komputer lokal untuk vault/browser sensitif.
-6. **AI/RAG** - jawaban berbasis notes pribadi dengan proteksi note sensitif.
-7. **Browser control terbatas** - draft reply dulu, eksekusi hanya setelah approval.
+## Cara Pakai
+
+Buka URL Hermes Hub:
+
+```text
+https://hermes.example.com
+```
+
+Dashboard `/` sekarang bisa dipakai untuk:
+
+- melihat status service;
+- menyimpan note cepat;
+- mencari note berdasarkan title, content, tags, atau source;
+- menghapus note;
+- melihat jumlah note dan update terakhir.
+
+Jika `HERMES_TOKEN` diset di environment, dashboard akan meminta access token sebelum notes bisa dibaca atau ditulis. Token disimpan di browser local storage.
+
+Flow penggunaan harian:
+
+1. Buka dashboard Hermes.
+2. Isi token jika diminta.
+3. Tulis note di panel `Capture`.
+4. Tambahkan tag seperti `idea`, `project`, atau `dokploy`.
+5. Klik `Save Note`.
+6. Cari note dari panel `Notes`.
+
+Data notes disimpan di `/app/data/notes.json` di dalam container dan dipersist lewat Docker volume `hermes-data`.
+
+## API Notes
+
+List notes:
+
+```sh
+curl https://hermes.example.com/api/notes \
+  -H "Authorization: Bearer YOUR_HERMES_TOKEN"
+```
+
+Search notes:
+
+```sh
+curl "https://hermes.example.com/api/notes?query=dokploy" \
+  -H "Authorization: Bearer YOUR_HERMES_TOKEN"
+```
+
+Create note:
+
+```sh
+curl -X POST https://hermes.example.com/api/notes \
+  -H "Authorization: Bearer YOUR_HERMES_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Deploy note","content":"Route domain to service hermes port 3000.","tags":"deploy,hermes","source":"manual"}'
+```
+
+Delete note:
+
+```sh
+curl -X DELETE https://hermes.example.com/api/notes/NOTE_ID \
+  -H "Authorization: Bearer YOUR_HERMES_TOKEN"
+```
 
 ## Endpoint
 
-- `/` - halaman status service
+- `/` - dashboard Hermes Hub
 - `/health` - health check JSON
 - `/ready` - alias health check
 - `/api/info` - metadata runtime
+- `/api/notes` - list dan create notes
+- `/api/notes/:id` - delete note
 
 ## Environment
 
-Gunakan `.env.example` sebagai template. Untuk deploy di Dokploy, isi variable ini lewat menu Environment app Dokploy.
+Gunakan `.env.example` sebagai template. Untuk Docker lokal atau VPS manual, buat file `.env`. Untuk Dokploy, isi variable ini lewat menu Environment app Dokploy.
 
 | Name | Default | Keterangan |
 | --- | --- | --- |
 | `APP_NAME` | `Hermes` | Nama service yang tampil di halaman dan health payload. |
-| `APP_URL` | `http://localhost:3000` | URL publik aplikasi, contoh `https://hermes.domainmu.com`. |
+| `APP_URL` | `http://localhost:3000` | URL publik aplikasi, contoh `https://hermes.example.com`. |
+| `DATA_DIR` | `/app/data` | Lokasi file data notes di container. |
+| `HERMES_TOKEN` | kosong | Token untuk mengunci API notes dan dashboard notes. Wajib diset untuk deploy publik. |
 | `HOST_PORT` | `3000` | Port host untuk Docker Compose lokal lewat `compose.local.yaml`. Tidak perlu diset untuk Dokploy. |
 | `LOG_LEVEL` | `info` | Disiapkan untuk konfigurasi logging berikutnya. |
 | `TRUST_PROXY` | `true` | Aktifkan pembacaan `X-Forwarded-For`, cocok saat di belakang proxy Dokploy. |
@@ -127,11 +187,118 @@ Contoh production:
 
 ```env
 APP_NAME=Hermes
-APP_URL=https://hermes.domainmu.com
+APP_URL=https://hermes.example.com
+DATA_DIR=/app/data
+HERMES_TOKEN=change-me-to-a-long-random-token
 HOST_PORT=3000
 LOG_LEVEL=info
 TRUST_PROXY=true
 ```
+
+## Deploy Lokal dengan Node.js
+
+Mode ini cocok untuk development cepat tanpa Docker.
+
+Jalankan checks dan tests:
+
+```sh
+npm run check
+npm test
+```
+
+Start server:
+
+```sh
+npm start
+```
+
+Buka:
+
+```text
+http://localhost:3000
+```
+
+## Deploy Lokal dengan Docker Compose
+
+Gunakan dua file compose untuk lokal. `compose.yaml` berisi service utama, sedangkan `compose.local.yaml` menambahkan port mapping ke host.
+
+Start:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml up --build
+```
+
+Buka:
+
+```text
+http://localhost:3000
+```
+
+Run in background:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
+```
+
+View logs:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml logs -f hermes
+```
+
+Stop:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml down
+```
+
+Jika port lokal `3000` bentrok, ubah `HOST_PORT`:
+
+```env
+HOST_PORT=3001
+```
+
+## Deploy ke VPS Manual
+
+Mode ini cocok untuk VPS biasa tanpa Dokploy.
+
+1. Install Docker dan Docker Compose di VPS.
+2. Clone repository:
+
+```sh
+git clone https://github.com/YOUR_ORG/YOUR_REPO.git
+cd YOUR_REPO
+```
+
+3. Buat `.env` dari `.env.example`, lalu isi production values:
+
+```env
+APP_NAME=Hermes Hub
+APP_URL=https://hermes.example.com
+DATA_DIR=/app/data
+HERMES_TOKEN=change-me-to-a-long-random-token
+TRUST_PROXY=true
+```
+
+4. Jalankan service:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
+```
+
+5. Pasang reverse proxy seperti Caddy, Nginx, atau Traefik dari domain publik ke:
+
+```text
+127.0.0.1:3000
+```
+
+6. Verifikasi:
+
+```sh
+curl https://hermes.example.com/health
+```
+
+Untuk VPS manual, `compose.local.yaml` dipakai karena reverse proxy biasanya perlu host port. Jika reverse proxy berada di Docker network yang sama, host port bisa dihindari dan proxy dapat route langsung ke service `hermes` port `3000`.
 
 ## Deploy ke Dokploy
 
@@ -155,7 +322,7 @@ Bind for 0.0.0.0:3000 failed: port is already allocated
 Setelah deploy selesai, cek:
 
 ```sh
-curl https://hermes.domainmu.com/health
+curl https://hermes.example.com/health
 ```
 
 Respons sehat akan terlihat seperti ini:
@@ -170,65 +337,114 @@ Respons sehat akan terlihat seperti ini:
 
 Payload asli juga menyertakan `uptime` dan `timestamp`.
 
-## Deploy Lokal dengan Docker Compose
+## Data Persistence
 
-Jalankan dari root project:
-
-```sh
-docker compose -f compose.yaml -f compose.local.yaml up --build
-```
-
-Buka:
+Dalam deployment Docker, notes disimpan di:
 
 ```text
-http://localhost:3000
+/app/data/notes.json
 ```
 
-Untuk menjalankan di background:
+`compose.yaml` membuat volume:
 
-```sh
-docker compose -f compose.yaml -f compose.local.yaml up -d --build
+```text
+hermes-data
 ```
 
-Untuk melihat log:
+Volume ini menjaga notes tetap ada setelah container rebuild atau redeploy. Jika notes dianggap penting, backup volume ini secara berkala.
 
-```sh
-docker compose -f compose.yaml -f compose.local.yaml logs -f hermes
+## Security Checklist
+
+Untuk deployment publik:
+
+- Set `HERMES_TOKEN` dengan token panjang dan acak.
+- Gunakan HTTPS.
+- Jangan commit `.env`.
+- Backup volume `hermes-data`.
+- Jangan simpan secrets penting di notes sebelum ada encryption dan access control yang lebih kuat.
+- Gunakan approval workflow sebelum menambahkan integrasi yang bisa melakukan action eksternal.
+
+## VPS, Lokal, dan Hybrid
+
+Hermes Hub bisa dijalankan sepenuhnya di VPS, terutama untuk workflow yang butuh always-on seperti dashboard, notes API, webhook, queue, dan health check.
+
+Namun, beberapa workflow lebih aman dijalankan secara lokal:
+
+- vault Obsidian atau notes yang sangat sensitif;
+- browser session yang sudah login;
+- tools yang bisa melakukan action eksternal atas nama user.
+
+Pilihan deployment:
+
+| Model | Cocok Untuk | Risiko |
+| --- | --- | --- |
+| Full VPS | Dashboard publik, notes non-sensitif, webhook, queue, bot always-on. | Data dan secrets hidup di server. |
+| Full lokal | Private vault, browser session utama, eksperimen sensitif. | Tidak always-on kecuali mesin lokal selalu hidup. |
+| Hybrid | VPS sebagai gateway, komputer lokal sebagai executor sensitif. | Butuh tunnel/private network dan permission yang rapi. |
+
+Rekomendasi umum: gunakan **full VPS** untuk Hermes Hub dasar, lalu gunakan **hybrid** jika mulai menghubungkan vault pribadi atau browser agent.
+
+## Browser Control
+
+Browser control adalah integrasi lanjutan dan belum menjadi fitur bawaan Hermes Hub. Jika nanti ditambahkan, gunakan batas aman berikut:
+
+- Jangan pakai browser profile utama untuk automation.
+- Buat browser profile khusus untuk Hermes.
+- Pisahkan akun eksperimen dari akun utama jika memungkinkan.
+- Semua action eksternal harus melalui approval: post, reply, delete, follow, DM, email, transaksi, atau perubahan setting akun.
+- Log semua action dan simpan status pending sebelum dieksekusi.
+- Jangan simpan cookies/session browser utama di VPS.
+
+Arsitektur yang lebih aman:
+
+```text
+Telegram / Web UI
+  -> Hermes Hub di VPS
+  -> private API / tunnel
+  -> Local Agent di komputer pribadi
+  -> Browser profile khusus
 ```
 
-Untuk mematikan service:
+## Second Brain Direction
 
-```sh
-docker compose -f compose.yaml -f compose.local.yaml down
-```
+Hermes Hub dapat berkembang menjadi second-brain system. Referensi yang relevan: [andrihakim146/hermes-second-brain](https://github.com/andrihakim146/hermes-second-brain), sebuah project AI second brain untuk Obsidian yang dikendalikan dari Telegram lewat Hermes Agent dan MCP.
 
-## Development Lokal
+Konsep yang bisa diadopsi:
 
-Requirements:
+- Vault Markdown/Obsidian sebagai source of truth.
+- SQLite untuk job, audit, index pencarian, dan metadata operasional.
+- Capability/permission layer untuk membatasi tools.
+- Write operation yang atomik, reversible, dan tercatat di audit log.
+- Proteksi note sensitif agar tidak sembarang dikirim ke AI, di-embed, atau diindeks penuh.
 
-- Node.js 20.11 atau lebih baru
+## Roadmap
 
-Jalankan:
+Urutan pengembangan yang disarankan:
 
-```sh
-npm test
-npm run check
-npm start
-```
+1. **Audit log** - catat create/delete note, token usage, error, dan action penting.
+2. **SQLite storage** - pindahkan storage dari JSON ke SQLite untuk query dan durability yang lebih baik.
+3. **Full-text search** - tambah pencarian yang lebih kuat untuk content dan tags.
+4. **Telegram capture** - simpan note/link dari Telegram dengan allowlist user.
+5. **Approval center** - action pending, approve/reject, dan audit trail.
+6. **Local agent** - koneksi privat ke komputer lokal untuk vault/browser sensitif.
+7. **AI/RAG** - jawaban berbasis notes pribadi dengan proteksi note sensitif.
+8. **Browser control terbatas** - draft reply dulu, eksekusi hanya setelah approval.
 
-App akan listen di `http://localhost:3000`.
-
-## Struktur Deploy
+## Struktur Project
 
 - [Dockerfile](Dockerfile) membuat image Node.js production.
 - [compose.yaml](compose.yaml) mendefinisikan service `hermes`, internal port `3000`, restart policy, dan environment untuk Dokploy.
 - [compose.local.yaml](compose.local.yaml) menambahkan host port mapping untuk development lokal.
 - [.env.example](.env.example) adalah template variable untuk lokal dan Dokploy.
+- `src/storage.js` mengelola file notes persisten.
+- `src/dashboard.js` merender dashboard Hermes Hub.
 
 ## Troubleshooting
 
 - Jika deploy Dokploy gagal dengan `Bind for 0.0.0.0:3000 failed`, pastikan Dokploy memakai `compose.yaml` saja, bukan `compose.local.yaml`.
 - Jika domain Dokploy menampilkan 502, pastikan route domain mengarah ke service `hermes` port `3000`.
 - Jika `/api/info` menampilkan IP proxy, pastikan `TRUST_PROXY=true`.
+- Jika dashboard notes menampilkan locked state, isi token yang sama dengan `HERMES_TOKEN`.
+- Jika notes hilang setelah redeploy, pastikan volume `hermes-data` aktif di Dokploy.
 - Jika port lokal bentrok, ubah `HOST_PORT` di `.env`, misalnya `HOST_PORT=3001`.
 - Jika health check gagal, cek log dengan `docker compose logs -f hermes`.
